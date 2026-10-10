@@ -11,6 +11,13 @@ CONF_FAULT = "fault"
 CONF_EVENT = "event"
 CONF_FAULT_CODES = "fault_codes"
 CONF_DIAG_RESPONSE = "diag_response"
+IdentText = cg.esphome_ns.namespace("hydronic_s3").enum("IdentText")
+IDENT = {
+    "hardware_version": "IDENT_HARDWARE_VERSION",
+    "software_version": "IDENT_SOFTWARE_VERSION",
+    "part_number": "IDENT_PART_NUMBER",
+    "serial_number": "IDENT_SERIAL",
+}
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -20,6 +27,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_EVENT): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_FAULT_CODES): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_DIAG_RESPONSE): text_sensor.text_sensor_schema(),
+        **{
+            cv.Optional(key): text_sensor.text_sensor_schema(entity_category="diagnostic")
+            for key in IDENT
+        },
     }
 )
 
@@ -36,3 +47,6 @@ async def to_code(config):
         cg.add(parent.set_fault_codes_text_sensor(await text_sensor.new_text_sensor(conf)))
     if conf := config.get(CONF_DIAG_RESPONSE):
         cg.add(parent.set_diag_response_text_sensor(await text_sensor.new_text_sensor(conf)))
+    for key, which in IDENT.items():
+        if conf := config.get(key):
+            cg.add(parent.set_ident_text_sensor(getattr(IdentText, which), await text_sensor.new_text_sensor(conf)))

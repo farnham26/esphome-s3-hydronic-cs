@@ -442,6 +442,23 @@ switch:
           id(heater).start_polling(esphome::hydronic_s3::HydronicS3::sensor_dids(), 5000);
     turn_off_action:
       - lambda: "id(heater).stop_polling();"
+  # Research: sweeps all answering DIDs FD00..FD44 instead (DID sensors keep updating).
+  - platform: template
+    id: poll_all_dids
+    name: "Poll All DIDs"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    web_server:
+      sorting_group_id: group_heater
+    turn_on_action:
+      - switch.turn_off: poll_dids
+      - lambda: |-
+          std::vector<uint16_t> dids;
+          for (uint16_t d = 0xFD00; d <= 0xFD44; d++) dids.push_back(d);
+          id(heater).start_polling(dids, 5000);
+    turn_off_action:
+      - lambda: "id(heater).stop_polling();"
+      - switch.turn_on: poll_dids
 
 text:
   - platform: template
@@ -522,6 +539,14 @@ button:
 
 text_sensor:
   - platform: hydronic_s3
+    hardware_version:
+      name: "Heater Hardware Version"
+    software_version:
+      name: "Heater Software Version"
+    part_number:
+      name: "Heater Part Number"
+    serial_number:
+      name: "Heater Serial Number"
     state:
       name: "Heater State"
       web_server:

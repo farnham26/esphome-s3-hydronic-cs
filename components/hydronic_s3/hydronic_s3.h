@@ -59,6 +59,15 @@ enum DidSensor : uint8_t {
   DID_SENSOR_COUNT,
 };
 
+/// Identification read once (retried each poll sweep until answered).
+enum IdentText : uint8_t {
+  IDENT_HARDWARE_VERSION,  // F193 ASCII
+  IDENT_SOFTWARE_VERSION,  // F195 ASCII
+  IDENT_PART_NUMBER,       // F1F0 BCD (25 27 45 01 50 01 = 25.2745.01.5001)
+  IDENT_SERIAL,            // F1F5 ASCII
+  IDENT_COUNT,
+};
+
 /// D6L datasheet: 5600 W at 0.65 l/h, 1300 W at 0.15 l/h (linear within 1 %).
 static constexpr float HEAT_FLOW_W_PER_L_H = 5600.0f / 0.65f;
 
@@ -80,6 +89,7 @@ class HydronicS3 : public Component {
   void set_event_text_sensor(text_sensor::TextSensor *s) { this->event_text_ = s; }
   void set_fault_codes_text_sensor(text_sensor::TextSensor *s) { this->fault_codes_text_ = s; }
   void set_diag_response_text_sensor(text_sensor::TextSensor *s) { this->diag_response_text_ = s; }
+  void set_ident_text_sensor(IdentText which, text_sensor::TextSensor *s) { this->ident_texts_[which] = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
@@ -161,6 +171,8 @@ class HydronicS3 : public Component {
   uint16_t scan_silent_{0};
   uint8_t scan_service_{0x22};
   std::vector<uint16_t> poll_dids_;  // non-empty: sweep this list instead of a range
+  std::vector<uint16_t> ident_dids_{0xF193, 0xF195, 0xF1F0, 0xF1F5};  // not yet answered
+  std::vector<uint16_t> sweep_dids_;  // current sweep: poll_dids_ + ident_dids_
   size_t poll_index_{0};
   bool polling_{false};
   uint32_t poll_interval_ms_{0};
@@ -184,6 +196,7 @@ class HydronicS3 : public Component {
   text_sensor::TextSensor *event_text_{nullptr};
   text_sensor::TextSensor *fault_codes_text_{nullptr};
   text_sensor::TextSensor *diag_response_text_{nullptr};
+  text_sensor::TextSensor *ident_texts_[IDENT_COUNT]{};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};

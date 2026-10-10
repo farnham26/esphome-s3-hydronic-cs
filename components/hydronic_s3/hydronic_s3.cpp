@@ -1,5 +1,7 @@
 #include "hydronic_s3.h"
 
+#include <algorithm>
+
 #include <cinttypes>
 
 #include "esphome/core/hal.h"
@@ -282,7 +284,9 @@ void HydronicS3::loop() {
     this->scan_service_ = 0x22;
     this->poll_index_ = 0;
     this->scan_next_ = 0;
-    this->scan_last_ = this->poll_dids_.size() - 1;
+    this->sweep_dids_ = this->poll_dids_;
+    this->sweep_dids_.insert(this->sweep_dids_.end(), this->ident_dids_.begin(), this->ident_dids_.end());
+    this->scan_last_ = this->sweep_dids_.size() - 1;
     this->scan_awaiting_ = false;
     this->scan_active_ = true;
   }
@@ -319,7 +323,7 @@ void HydronicS3::loop() {
     this->publish_diag_(buf);
     return;
   }
-  const uint16_t id = this->polling_ ? this->poll_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
+  const uint16_t id = this->polling_ ? this->sweep_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
   std::vector<uint8_t> req;
   if (this->scan_service_ == 0x21)
     req = {0x02, 0x21, static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
@@ -476,6 +480,28 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
 }
 
 void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
+  const auto ident = std::find(this->ident_dids_.begin(), this->ident_dids_.end(), did);
+  if (ident != this->ident_dids_.end()) {
+    this->ident_dids_.erase(ident);
+#ifdef USE_TEXT_SENSOR
+    std::string text;
+    IdentText which = IDENT_COUNT;
+    if (did == 0xF1F0) {
+      char buf[20];
+      if (n >= 6)
+        snprintf(buf, sizeof(buf), "%02X.%02X%02X.%02X.%02X%02X", d[0], d[1], d[2], d[3], d[4], d[5]);
+      text = n >= 6 ? buf : "";
+      which = IDENT_PART_NUMBER;
+    } else {
+      for (size_t i = 0; i < n; i++)
+        text += d[i] >= 0x20 && d[i] < 0x7F ? static_cast<char>(d[i]) : '.';
+      which = did == 0xF193 ? IDENT_HARDWARE_VERSION : did == 0xF195 ? IDENT_SOFTWARE_VERSION : IDENT_SERIAL;
+    }
+    if (this->ident_texts_[which] != nullptr)
+      this->ident_texts_[which]->publish_state(text);
+#endif
+    return;
+  }
   auto u16 = [d](size_t i) { return static_cast<uint16_t>(d[i] << 8 | d[i + 1]); };
 #ifdef USE_SENSOR
   auto pub = [this](DidSensor which, float value) {
