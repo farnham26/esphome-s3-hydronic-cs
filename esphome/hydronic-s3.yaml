@@ -217,7 +217,7 @@ interval:
           const float ct = id(heater).controller_temperature();
           snprintf(buf, sizeof(buf), "Outlet temperature\nState  %s   Request  %s\nFault  %s\nEasyStart  %.1f °C",
                    name != nullptr ? name : code, rq < 0 ? "--" : rq == 1 ? "on" : "off",
-                   fc < 0 ? "--" : fc == 0 ? "none" : "ACTIVE", ct);
+                   fc < 0 ? "--" : fc == 0 ? "none" : "flags set", ct);
           set(id(lbl_heater), buf);
 
           snprintf(buf, sizeof(buf), "Pump %.2f Hz (ref)\nBat %.0f%%%s   %s",
@@ -353,6 +353,14 @@ text_sensor:
         sorting_group_id: group_heater
     fault:
       name: "Heater Fault"
+      web_server:
+        sorting_group_id: group_heater
+    fault_codes:
+      name: "Heater Fault Codes"
+      web_server:
+        sorting_group_id: group_heater
+    event:
+      name: "Heater Event"
       web_server:
         sorting_group_id: group_heater
   - platform: wifi_info
