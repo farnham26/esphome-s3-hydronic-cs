@@ -1,4 +1,4 @@
-# M5Stack Fire v2.7 (ESP32, 16 MB flash, 8 MB PSRAM on GPIO16/17, IP5306 at 0x75).
+# M5Stack Fire v2.7 (ESP32, 16 MB flash, 8 MB PSRAM unused, IP5306 at 0x75).
 # Pin map per https://docs.m5stack.com/en/core/fire_v2.7
 # LCD DC is GPIO27, SPI MISO GPIO19: the bus is free for COMMU's MCP2515.
 
@@ -16,9 +16,9 @@ esp32:
   framework:
     type: esp-idf
 
-psram:
-  mode: quad
-  speed: 40MHz              # 80 MHz PSRAM fails its memory test on this Fire with 80 MHz flash
+# PSRAM (8 MB on GPIO16/17) deliberately unused: SPI DMA cannot read PSRAM on the
+# ESP32, so LVGL buffers there cost a bounce copy per transfer, and PSRAM shares
+# the 32 KB cache with flash (stalls in the MCP2515 reader). Internal RAM suffices.
 
 i2c:
   - id: bsp_bus
