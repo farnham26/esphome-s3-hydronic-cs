@@ -116,6 +116,15 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   bool bus_held_{false};  // only changed by the reader, under spi_mutex_
   uint8_t read_intf_();
 
+  // Every SPI transaction goes through this buffer. The ESP32's SPI DMA needs
+  // 4-byte aligned buffers (otherwise IDF mallocs a bounce buffer per
+  // transaction) and RX lengths that are multiples of 4 (otherwise DMA may write
+  // out of bounds). Guarded by spi_mutex_ once the reader runs.
+  static constexpr size_t XFER_LEN = 20;
+  alignas(4) uint8_t xfer_[XFER_LEN]{};
+  void spi_write_(size_t len);  // TX only: xfer_[0, len)
+  void spi_read_(size_t len);   // full duplex in place, padded to a multiple of 4
+
   // Interrupt-driven reception: the ISR wakes reader_task_, which drains the RX
   // buffers into rx_queue_; read_message() pops from it in the main loop.
   static void gpio_isr_(MCP2515 *self);

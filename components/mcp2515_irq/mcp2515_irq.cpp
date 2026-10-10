@@ -48,12 +48,29 @@ void MCP2515::disable() {
     SPIBase::disable();
 }
 
-uint8_t MCP2515::read_intf_() {
-  uint8_t buf[3] = {INSTRUCTION_READ, MCP_CANINTF, 0};
+static constexpr size_t round4(size_t n) { return (n + 3) & ~static_cast<size_t>(3); }
+
+void MCP2515::spi_write_(size_t len) {
   this->enable();
-  this->transfer_array(buf, sizeof(buf));
+  this->write_array(this->xfer_, len);
   this->disable();
-  return buf[2];
+}
+
+void MCP2515::spi_read_(size_t len) {
+  // Padding bytes clock the auto-incremented address on: harmless for the
+  // read instructions this is used with.
+  const size_t padded = round4(len);
+  std::fill(this->xfer_ + len, this->xfer_ + padded, 0);
+  this->enable();
+  this->transfer_array(this->xfer_, padded);
+  this->disable();
+}
+
+uint8_t MCP2515::read_intf_() {
+  this->xfer_[0] = INSTRUCTION_READ;
+  this->xfer_[1] = MCP_CANINTF;
+  this->spi_read_(3);
+  return this->xfer_[2];
 }
 
 bool MCP2515::setup_internal() {
@@ -229,11 +246,9 @@ void MCP2515::receive_(RXBn rxbn) {
 }
 
 bool MCP2515::read_rx_buffer_(RXBn rxbn, canbus::CanFrame *frame) {
-  uint8_t xfer[1 + RXB_LEN] = {rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1};
-  this->enable();
-  this->transfer_array(xfer, sizeof(xfer));
-  this->disable();  // raising CS after READ RX BUFFER clears RXnIF
-  const uint8_t *buf = xfer + 1;
+  this->xfer_[0] = rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1;
+  this->spi_read_(1 + RXB_LEN);  // raising CS after READ RX BUFFER clears RXnIF
+  const uint8_t *buf = this->xfer_ + 1;
 
   const uint8_t dlc = buf[MCP_DLC] & DLC_MASK;
   if (dlc > canbus::CAN_MAX_DATA_LENGTH)
@@ -251,9 +266,8 @@ bool MCP2515::read_rx_buffer_(RXBn rxbn, canbus::CanFrame *frame) {
 }
 
 canbus::Error MCP2515::reset_() {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_RESET);
-  this->disable();
+  this->xfer_[0] = INSTRUCTION_RESET;
+  this->spi_write_(1);
   ESP_LOGV(TAG, "reset_()");
   delay(10);
 
@@ -278,62 +292,46 @@ canbus::Error MCP2515::reset_() {
 }
 
 uint8_t MCP2515::read_register_(const REGISTER reg) {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_READ);
-  this->transfer_byte(reg);
-  uint8_t ret = this->transfer_byte(0x00);
-  this->disable();
-
-  return ret;
+  this->xfer_[0] = INSTRUCTION_READ;
+  this->xfer_[1] = reg;
+  this->spi_read_(3);
+  return this->xfer_[2];
 }
 
 void MCP2515::read_registers_(const REGISTER reg, uint8_t values[], const uint8_t n) {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_READ);
-  this->transfer_byte(reg);
-  // this->transfer_array(values, n);
-  // mcp2515 has auto - increment of address - pointer
-  for (uint8_t i = 0; i < n; i++) {
-    values[i] = this->transfer_byte(0x00);
-  }
-  this->disable();
+  // MCP2515 auto-increments the address pointer.
+  this->xfer_[0] = INSTRUCTION_READ;
+  this->xfer_[1] = reg;
+  this->spi_read_(2 + n);
+  std::copy(this->xfer_ + 2, this->xfer_ + 2 + n, values);
 }
 
 void MCP2515::set_register_(const REGISTER reg, const uint8_t value) {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_WRITE);
-  this->transfer_byte(reg);
-  this->transfer_byte(value);
-  this->disable();
+  this->xfer_[0] = INSTRUCTION_WRITE;
+  this->xfer_[1] = reg;
+  this->xfer_[2] = value;
+  this->spi_write_(3);
 }
 
 void MCP2515::set_registers_(const REGISTER reg, uint8_t values[], const uint8_t n) {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_WRITE);
-  this->transfer_byte(reg);
-  // this->transfer_array(values, n);
-  for (uint8_t i = 0; i < n; i++) {
-    this->transfer_byte(values[i]);
-  }
-  this->disable();
+  this->xfer_[0] = INSTRUCTION_WRITE;
+  this->xfer_[1] = reg;
+  std::copy(values, values + n, this->xfer_ + 2);
+  this->spi_write_(2 + n);
 }
 
 void MCP2515::modify_register_(const REGISTER reg, const uint8_t mask, const uint8_t data) {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_BITMOD);
-  this->transfer_byte(reg);
-  this->transfer_byte(mask);
-  this->transfer_byte(data);
-  this->disable();
+  this->xfer_[0] = INSTRUCTION_BITMOD;
+  this->xfer_[1] = reg;
+  this->xfer_[2] = mask;
+  this->xfer_[3] = data;
+  this->spi_write_(4);
 }
 
 uint8_t MCP2515::get_status_() {
-  this->enable();
-  this->transfer_byte(INSTRUCTION_READ_STATUS);
-  uint8_t i = this->transfer_byte(0x00);
-  this->disable();
-
-  return i;
+  this->xfer_[0] = INSTRUCTION_READ_STATUS;
+  this->spi_read_(2);
+  return this->xfer_[1];
 }
 
 canbus::Error MCP2515::set_mode_(const CanctrlReqopMode mode) {
@@ -454,16 +452,18 @@ canbus::Error MCP2515::set_filter_(const RXF num, const bool extended, const uin
 }
 
 canbus::Error MCP2515::send_message_(TXBn txbn, struct canbus::CanFrame *frame) {
-  const struct TxBnRegs *txbuf = &TXB[txbn];
-
-  uint8_t data[13];
-
+  static const uint8_t LOAD[N_TXBUFFERS] = {INSTRUCTION_LOAD_TX0, INSTRUCTION_LOAD_TX1, INSTRUCTION_LOAD_TX2};
+  static const uint8_t RTS[N_TXBUFFERS] = {INSTRUCTION_RTS_TX0, INSTRUCTION_RTS_TX1, INSTRUCTION_RTS_TX2};
+  // LOAD TX BUFFER writes from TXBnSIDH on; RTS requests the transmission.
+  uint8_t *data = this->xfer_ + 1;
+  this->xfer_[0] = LOAD[txbn];
   prepare_id_(data, frame->use_extended_id, frame->can_id);
   data[MCP_DLC] =
       frame->remote_transmission_request ? (frame->can_data_length_code | RTR_MASK) : frame->can_data_length_code;
   memcpy(&data[MCP_DATA], frame->data, frame->can_data_length_code);
-  set_registers_(txbuf->SIDH, data, 5 + frame->can_data_length_code);
-  modify_register_(txbuf->CTRL, TXB_TXREQ, TXB_TXREQ);
+  this->spi_write_(1 + 5 + frame->can_data_length_code);
+  this->xfer_[0] = RTS[txbn];
+  this->spi_write_(1);
 
   return canbus::ERROR_OK;
 }
