@@ -65,23 +65,21 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-10 22:40, live at the heater)
-- Fire on power bank, WiFi weak (API log lines get dropped; entity updates reliable).
-- Captures (`work/`, gitignored): `run2.log` (API logs), `events.log` (web SSE Heater*/Outlet/Overflow/Diag).
-- Firmware polls `HydronicS3::sensor_dids()` every 5 s from boot (switch "Poll DIDs", on in on_boot) → DID sensors
-  (inlet, flame sensor temp, voltage, blower, glow plug, metering pump, phase, hour counters, flame).
-- RX overflows: root cause = flash writes at safe_mode "boot good" (OTA image confirm erases a sector; cache off,
-  interrupts masked ~70 ms). Fixed: `mcp2515_irq` `start_delay: 15s` + `safe_mode_id`: marks boot good, syncs
-  preferences, then starts reception. No other runtime flash writes. Any future flash write = overflow (MCP2515 2-deep).
-- Heater via tempcontrol S+ relay; tempcontrol PID climate OFF.
--
+## Session state (2026-10-10 23:45, end of live session)
+- Heater OFF for the night: tempcontrol S+ relay OFF (`switch/TempControl S3 Heater relay (real)`), PID climate
+  OFF (`climate/TempControl PID Climate Controller`, valve readback `sensor/TempControl Ventilposition`).
+- Fire on power bank; switch "Poll All DIDs" ON (FD00..FD44 every 5 s, research). WiFi weak: API log lines get dropped, entity updates reliable.
+- Firmware = d0428fb: DID sensors (temps, voltage, blower, glow, pump, phase, fuel l/h, heating power, fuel total,
+  hour counters, flame), ident text sensors, CAN start after boot-good flash writes (no overflows since).
+- Decoded so far: `docs/research.md` (DID correlation, fuel, regulation curve FD33, phases, counters, DTC 19 06).
 
 ## Next steps
-1. Confirm the (?) DID decodes (voltage vs. multimeter, blower, FD0C, FD11 B1); find water pump, power %, FD08, FD0F.
-2. Map stored counters to DIDs (FD13/FD14/FD1x candidates).
-3. Startup fault: S+ start hold = `2C4` B2 `0x40` 1.7 s after request; P000252 (water pump) active during hold.
-   Capture a hold with DID polling on. Minimize ignitions (soot). React-to-hold = component feature candidate.
-4. Zero-loss option for later control: read MCP2515 from an IRAM ISR (survives flash ops).
+1. Cold start tomorrow (S+ on) with "Poll All DIDs": start counters, start fuel, possible start hold (P000252
+   occurred ~105×, last with loop ~40 °C). Minimize ignitions (soot).
+2. Open DIDs: water pump power (FD08?), FD35 (temperature?), FD0F w2–5, FD13/14/16/1B/27, stored counters
+   (ignitions, glow plug switch-ons, flame-outs, overheats, run durations, start types), DTC 19 06 layout.
+3. Display: show the new values on the LVGL UI. Then clean-up for the S3 component (drop research tools,
+   raw sensors). Zero-loss: MCP2515 read in IRAM ISR before any control TX.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;

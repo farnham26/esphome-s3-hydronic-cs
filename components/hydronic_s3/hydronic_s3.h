@@ -39,11 +39,11 @@ enum DidSensor : uint8_t {
   DID_INLET_TEMPERATURE,      // FD01 w2, v/100 - 50 °C
   DID_FLAME_SENSOR_TEMP,      // FD01 w1
   DID_SUPPLY_VOLTAGE,         // FD04 0.1 V (26.0 vs. 26.14 V measured)
-  DID_BLOWER_SPEED,           // FD09 rpm (?)
+  DID_BLOWER_SPEED,           // FD09 rpm (~2000 at min, 6154 at full load)
   DID_GLOW_PLUG_POWER,        // FD0A 0.1 W (?)
-  DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (?)
+  DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (start, run-down afterglow)
   DID_METERING_PUMP_RATE,     // FD0D 0.1 Hz (?)
-  DID_OPERATING_PHASE,        // FD10 B1: 0x0C start, 0x14 burn, 0x1F run-down, 0x28 pause
+  DID_OPERATING_PHASE,        // FD10 B1: 00 off, 0C start, 14 burn, 1E run-down (off), 1F run-down (pause), 28 pause
   DID_FUEL_CONSUMPTION,       // FD11 B1 µl/s (= 29.3 µl/stroke x FD0D; 41 at the 0.15 l/h minimum load)
   DID_HEATING_POWER,          // FD11 B1 x D6L datasheet heat flow per fuel (estimate)
   DID_FUEL_TOTAL,             // FD11 B2-5 litres + B6-9 nl (rollover at 1e9 assumed)
@@ -55,7 +55,7 @@ enum DidSensor : uint8_t {
   DID_HOURS_PAUSE,
   DID_HOURS_ALTITUDE,
   DID_FD08_RAW,               // u16: ~23100 burn, ~24650 run-down, 20000 pause (water pump?)
-  DID_FD35_RAW,               // u16: 10000..10600, all phases
+  DID_FD35_RAW,               // u16: rises while burning, falls in pause (temperature?)
   DID_SENSOR_COUNT,
 };
 
