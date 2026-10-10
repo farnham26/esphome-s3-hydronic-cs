@@ -345,6 +345,20 @@ sensor:
     web_server:
       sorting_group_id: group_heater
 
+button:
+  # Error-memory readout like the EasyStart's: the only time this node transmits.
+  # Normal mode just for the request and response, then back to listen-only.
+  - platform: template
+    name: "Read Fault Codes"
+    web_server:
+      sorting_group_id: group_heater
+    on_press:
+      - lambda: |-
+          if (id(heater_can)->set_listen_only(false))
+            id(heater).request_fault_codes(0x08);
+      - delay: 3s
+      - lambda: "id(heater_can)->set_listen_only(true);"
+
 text_sensor:
   - platform: hydronic_s3
     state:

@@ -61,6 +61,9 @@ class HydronicS3 : public Component {
   /// 0x2C4 B2 while in fault or its ~26 s aftermath, 0 otherwise; -1 until received.
   int fault_code() const { return this->fault_code_; }
   static const char *state_name(int state);
+  /// Sends UDS ReadDTCInformation (19 02 <mask>) as the EasyStart's error-memory
+  /// readout does. The bus controller must be out of listen-only mode.
+  void request_fault_codes(uint8_t status_mask);
 
   void setup() override;
   void dump_config() override;
@@ -90,6 +93,7 @@ class HydronicS3 : public Component {
   int switch_input_raw_{-1};  // 0x625 B1
   std::vector<uint8_t> isotp_buf_;  // diagnostic response being reassembled
   size_t isotp_len_{0};
+  bool diag_requested_{false};  // we are the tester: answer first frames with flow control
   int fault_code_{-1};
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};

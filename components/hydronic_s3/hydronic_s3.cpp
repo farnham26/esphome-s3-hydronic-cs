@@ -35,7 +35,9 @@ static constexpr uint32_t ID_CONTROLLER_STATUS = 0x065;
 static constexpr uint32_t ID_STATUS = 0x2C4;
 static constexpr uint32_t ID_HEARTBEAT = 0x625;
 // Diagnostics: UDS over ISO-TP, tester 0x7A0 -> heater 0x73C.
+static constexpr uint32_t ID_DIAG_REQUEST = 0x7A0;
 static constexpr uint32_t ID_DIAG_RESPONSE = 0x73C;
+static constexpr uint8_t ISOTP_PAD = 0xAA;
 static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 static constexpr uint8_t STATE_FAULT = 0x0B;
 
@@ -205,6 +207,13 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   }
 }
 
+void HydronicS3::request_fault_codes(uint8_t status_mask) {
+  this->diag_requested_ = true;
+  const std::vector<uint8_t> req{0x03, 0x19, 0x02, status_mask, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
+  const canbus::Error err = this->canbus_->send_data(ID_DIAG_REQUEST, false, req);
+  ESP_LOGI(TAG, "fault code request (mask %02X): %s", status_mask, err == canbus::ERROR_OK ? "sent" : "send failed");
+}
+
 // ISO-TP reassembly of the heater's diagnostic responses (single, first and
 // consecutive frames; flow control comes from the tester on 0x7A0).
 void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
@@ -214,6 +223,7 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
       if (len >= 1 && len < data.size())
         this->uds_(std::vector<uint8_t>(data.begin() + 1, data.begin() + 1 + len));
       this->isotp_len_ = 0;
+      this->diag_requested_ = false;
       break;
     }
     case 0x1:  // first frame
@@ -221,6 +231,11 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
         return;
       this->isotp_len_ = (data[0] & 0x0F) << 8 | data[1];
       this->isotp_buf_.assign(data.begin() + 2, data.end());
+      if (this->diag_requested_) {
+        // Flow control: continue, no block limit, STmin 20 ms (as the EasyStart).
+        const std::vector<uint8_t> fc{0x30, 0x00, 0x14, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
+        this->canbus_->send_data(ID_DIAG_REQUEST, false, fc);
+      }
       break;
     case 0x2:  // consecutive frame
       if (this->isotp_len_ == 0)
@@ -229,6 +244,7 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
       if (this->isotp_buf_.size() >= this->isotp_len_) {
         this->isotp_buf_.resize(this->isotp_len_);
         this->isotp_len_ = 0;
+        this->diag_requested_ = false;
         this->uds_(this->isotp_buf_);
       }
       break;
