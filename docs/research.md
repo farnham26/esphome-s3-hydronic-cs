@@ -329,3 +329,17 @@ P000222: 59 06 00 02 22 28 01 06 00 01 9B 78 1C A1 00 14 00 00 56 54 1F B8 00 F4
 Candidate layout after status: record 01, occurrence count (0x69 = 105 / 6), operating minutes u32 (FD17 d1 format:
 108803 = 110 min before now / 105336), u16 (FD06-like), u16, u32 (FD17 d7-like), u16 (FD36-like), u16, 8 bytes
 (FD10-like for P000222), 3× temp (FD01 format: 40.8/40.9/38.6 °C resp. 65.4/65.8/80.4 °C), 0x1A (26 V?), 2 bytes.
+
+### High-power run (23:29–23:38, tempcontrol HEAT, valve 100 %, 15 °C water in; then climate OFF, S+ off)
+- Start from pause 23:29:43, inlet fell to 24 °C. Burn 23:31:24; ramp 76→179 µl/s in 20 s. **179 µl/s = 0.644 l/h
+  ≈ 5550 W** = datasheet max (0.65 l/h, 5600 W) → fuel units and 29.3–29.5 µl stroke hold at full load too.
+- Full load: FD09 0x180A = 6154 (blower rpm, C: range 500–11000; ~2000 at min), FD08 ≈ 29950 (open), FD35 rising
+  11300→11730 (falls in pause: temperature-like, candidate control unit / heat exchanger), FD0F w3 0x83F5.
+- ΔT outlet−inlet ≈ 20 K at 5.55 kW → water flow ≈ 240–280 l/h (below manual minimum 300 l/h).
+- **Regulation (C, FD33 = outlet °C → % pairs 70/100 71/95 72/90 73/80 74/70 75/60 76/0, min 1300 W):** full power
+  below 70 °C; 159 @70.4, 141 @71.3, 123 @72.0, 106 @74.4, 76 @75.2, 47 @75.7, 41 (min) @76.2 °C. Intermediate
+  values below the table (controller dynamics). Control pause at ≈83 °C, restart ≈70.5 °C.
+- Phases FD10 B1: 00 off, 0C start, 14 burn, 1E run-down after switch-off, 1F run-down to control pause, 28 pause.
+  FD10 B0 01→00 at switch-off (request flag?).
+- Glow plug after every flame-off (run-down 0x1E/0x1F): ~89→74 W (FD0C 0x36→0x2D) for ~45 s; 0 while burning.
+- Counters: FD1E w2 = starts (+1 per start; 3416), FD06 = +1 at every start and every burner stop.
