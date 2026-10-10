@@ -85,3 +85,15 @@ pause change no byte). S+ (switch input) status bit: not identified yet (test wa
 flow control `30 08 14` (BS 8, STmin 20 ms). Example: `19 02 08` (ReadDTCInformation by status mask) →
 `59 02 08 | 00 02 52 2C | 00 02 22 28` = P000252 (status 2C), P000222 (status 28). Live values should be
 readable via `22` ReadDataByIdentifier — DIDs unknown, needs TX (safety review first).
+
+## DTC meanings (OEM sources, web research 2026-10-10)
+From Eberspächer "Repair Instructions Hydronic S3 Economy 12V CS / Commercial 24V CS"
+(https://files.chartindustries.com/Hydronic_S3_Service.pdf, covers D6L 24 V CS 25.2745.05.0000) and Navistar TSB
+IK1900301 (https://static.nhtsa.gov/odi/tsbs/2026/MC-11031193-0001.pdf):
+- **P000222** = combustion-air blower motor: short circuit to +Ub or transistor error.
+- **P000252** = water pump: short circuit to +Ub or transistor error.
+- Scheme P000 + group + index: 20x metering pump, 21x glow plug, 22x blower (0 open, 1 short, 2 short +Ub,
+  3 blocked, 4 overcurrent), 25x water pump (… 5 below min speed, 6 dry running, 7 overheating), 12x flame/start,
+  3xx control box / voltage / CAN (P000342 "too many CAN components"). Control box stores up to 10 faults.
+- No public source for 0x7A0/0x73C or UDS DIDs. No evidence the S3 emits J1939 HTR (PGN 65133).
+- P000342 implies a third-party controller must replace the EasyStart, not join as an extra node.
