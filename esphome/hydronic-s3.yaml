@@ -213,8 +213,11 @@ interval:
           const char *name = hydronic_s3::HydronicS3::state_name(st);
           char code[8];
           snprintf(code, sizeof(code), st < 0 ? "--" : "0x%02X", st);
-          snprintf(buf, sizeof(buf), "Outlet temperature\nState  %s\nRequest  %s", name != nullptr ? name : code,
-                   rq < 0 ? "--" : rq == 1 ? "on" : "off");
+          const int fc = id(heater).fault_code();
+          const float ct = id(heater).controller_temperature();
+          snprintf(buf, sizeof(buf), "Outlet temperature\nState  %s   Request  %s\nFault  %s\nEasyStart  %.1f °C",
+                   name != nullptr ? name : code, rq < 0 ? "--" : rq == 1 ? "on" : "off",
+                   fc < 0 ? "--" : fc == 0 ? "none" : "ACTIVE", ct);
           set(id(lbl_heater), buf);
 
           snprintf(buf, sizeof(buf), "Pump %.2f Hz (ref)\nBat %.0f%%%s   %s",
@@ -262,6 +265,7 @@ interval:
           bool int_low;
           auto *can = id(heater_can);
           can->read_diag(intf, eflg, rec, int_low);
+          can->log_overflow_trace();
           uint32_t wake_us, drain_us, frame_us;
           can->take_latency_max(wake_us, drain_us, frame_us);
           ESP_LOGI("can_diag", "read %u processed %u ovf %u drop %u qmax %u | wake max %u us frame max %u us drain max %u us | INT %s CANINTF %02X EFLG %02X REC %u",
@@ -278,6 +282,10 @@ sensor:
         - or:
             - delta: 0.2
             - throttle: 30s
+      web_server:
+        sorting_group_id: group_heater
+    controller_temperature:
+      name: "EasyStart Temperature"
       web_server:
         sorting_group_id: group_heater
     state_code:
@@ -341,6 +349,10 @@ text_sensor:
   - platform: hydronic_s3
     state:
       name: "Heater State"
+      web_server:
+        sorting_group_id: group_heater
+    fault:
+      name: "Heater Fault"
       web_server:
         sorting_group_id: group_heater
   - platform: wifi_info

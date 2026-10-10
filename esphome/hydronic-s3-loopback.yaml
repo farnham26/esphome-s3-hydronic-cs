@@ -51,7 +51,9 @@ canbus:
               }
               const uint32_t seq = x[0] | x[1] << 8 | x[2] << 16 | (uint32_t) x[3] << 24;
               if (seq < id(rx_expected)) {
-                id(rx_reordered)++;
+                if (id(rx_reordered)++ < 20)
+                  ESP_LOGW("stress", "out-of-order seq %u, expected %u (driver frames read %u)", (unsigned) seq,
+                           (unsigned) id(rx_expected), (unsigned) id(heater_can)->frames_read());
                 return;
               }
               id(rx_lost) += seq - id(rx_expected);
