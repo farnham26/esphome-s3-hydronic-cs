@@ -15,9 +15,6 @@ static constexpr uint32_t DUMP_INTERVAL_MS = 10000;
 // A byte that has changed this often is a counter or an analog value: its
 // changes stop being logged one by one and show in the periodic dump only.
 static constexpr uint8_t QUIET_AFTER_CHANGES = 16;
-// Frames counted before the period is trusted for gap detection.
-static constexpr uint32_t PERIOD_SETTLE_FRAMES = 10;
-static constexpr float GAP_FACTOR = 1.8f;
 
 // Decoded so far (heater -> controller unless noted), all little-endian:
 //   0x2C4 B0      heater state: 0x03 idle, 0x05 active (heating, control pause and
@@ -81,12 +78,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     }
   } else {
     const float dt = now - s.last_ms;
-    if (s.count >= PERIOD_SETTLE_FRAMES && dt > GAP_FACTOR * s.period_ms) {
-      s.gaps++;
-      this->gaps_++;
-    } else {
-      s.period_ms = s.count == 1 ? dt : 0.9f * s.period_ms + 0.1f * dt;
-    }
+    s.period_ms = s.count == 1 ? dt : 0.9f * s.period_ms + 0.1f * dt;
     for (uint8_t b = 0; b < len; b++) {
       if (b < s.len && data[b] == s.data[b])
         continue;
@@ -150,15 +142,14 @@ void HydronicS3::dump_ids_() {
   }
   const uint32_t now = millis();
   char buf[25], mask[9];
-  ESP_LOGI(TAG, "%u IDs, %" PRIu32 " frames, %" PRIu32 " gaps", (unsigned) this->ids_.size(), this->frames_,
-           this->gaps_);
+  ESP_LOGI(TAG, "%u IDs, %" PRIu32 " frames", (unsigned) this->ids_.size(), this->frames_);
   for (auto &[key, s] : this->ids_) {
     hex(buf, s.data, s.len);
     for (uint8_t b = 0; b < 8; b++)
       mask[b] = b >= s.len ? ' ' : (s.changed >> b & 1) ? '^' : '.';
     mask[8] = 0;
-    ESP_LOGI(TAG, "  %0*" PRIX32 " n=%-6" PRIu32 " T=%6.0fms gaps=%-4" PRIu32 " age=%5" PRIu32 "ms  %-24s %s",
-             s.ext ? 8 : 3, key & ~EXT_FLAG, s.count, s.period_ms, s.gaps, now - s.last_ms, buf, mask);
+    ESP_LOGI(TAG, "  %0*" PRIX32 " n=%-6" PRIu32 " T~%6.0fms age=%5" PRIu32 "ms  %-24s %s", s.ext ? 8 : 3,
+             key & ~EXT_FLAG, s.count, s.period_ms, now - s.last_ms, buf, mask);
     s.changed = 0;
   }
 }

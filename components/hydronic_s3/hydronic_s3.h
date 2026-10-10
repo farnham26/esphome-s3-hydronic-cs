@@ -29,8 +29,7 @@ struct IdState {
   uint8_t changes[8]{};     // per-byte change count, saturating
   uint32_t count{0};
   uint32_t last_ms{0};
-  float period_ms{0};       // smoothed inter-frame interval
-  uint32_t gaps{0};         // intervals well above period_ms: frames lost
+  float period_ms{0};       // smoothed inter-frame interval, at processing time (approximate)
 };
 
 /// Eberspächer Hydronic S3 on CAN (EasyStart protocol, 11-bit, 500 kbit/s).
@@ -63,7 +62,6 @@ class HydronicS3 : public Component {
   /// Key: CAN ID, bit 31 set for extended IDs.
   const std::map<uint32_t, IdState> &ids() const { return this->ids_; }
   uint32_t frames() const { return this->frames_; }
-  uint32_t gaps() const { return this->gaps_; }
 
  protected:
   void on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data);
@@ -73,7 +71,6 @@ class HydronicS3 : public Component {
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
   uint32_t frames_{0};
-  uint32_t gaps_{0};
 
   float outlet_temp_c_{NAN};
   int state_{-1};
