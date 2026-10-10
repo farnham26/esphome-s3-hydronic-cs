@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <functional>
 #include <cstdint>
 #include <map>
 #include <vector>
@@ -48,6 +49,7 @@ class HydronicS3 : public Component {
   void set_fault_text_sensor(text_sensor::TextSensor *s) { this->fault_text_ = s; }
   void set_event_text_sensor(text_sensor::TextSensor *s) { this->event_text_ = s; }
   void set_fault_codes_text_sensor(text_sensor::TextSensor *s) { this->fault_codes_text_ = s; }
+  void set_diag_response_text_sensor(text_sensor::TextSensor *s) { this->diag_response_text_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
@@ -64,8 +66,17 @@ class HydronicS3 : public Component {
   /// Sends UDS ReadDTCInformation (19 02 <mask>) as the EasyStart's error-memory
   /// readout does. The bus controller must be out of listen-only mode.
   void request_fault_codes(uint8_t status_mask);
+  /// Reads DIDs first..last one by one with UDS ReadDataByIdentifier (22); positive
+  /// answers go to the diag_response text sensor. The bus controller is taken out of
+  /// listen-only mode for the scan through the listen-only hook.
+  void scan_dids(uint16_t first, uint16_t last);
+  /// Same for KWP2000-style ReadDataByLocalIdentifier (21 <id>), ids first..last.
+  void scan_local_ids(uint8_t first, uint8_t last);
+  /// Switches the bus controller between listen-only (true) and normal mode.
+  void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }
 
   void setup() override;
+  void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
 
@@ -94,6 +105,23 @@ class HydronicS3 : public Component {
   std::vector<uint8_t> isotp_buf_;  // diagnostic response being reassembled
   size_t isotp_len_{0};
   bool diag_requested_{false};  // we are the tester: answer first frames with flow control
+  void publish_diag_(const std::string &text);
+  std::function<bool(bool)> listen_only_hook_;
+  bool scan_active_{false};
+  bool scan_awaiting_{false};
+  uint32_t scan_next_{0};  // 32 bit: a scan up to FFFF must not wrap
+  uint32_t scan_last_{0};
+  uint32_t scan_sent_ms_{0};
+  uint32_t scan_timeout_ms_{0};
+  uint16_t scan_positive_{0};
+  uint16_t scan_negative_{0};
+  uint16_t scan_silent_{0};
+  uint8_t scan_service_{0x22};
+  uint16_t nrc_count_[256]{};  // negative response codes seen during the scan
+  void start_scan_(uint8_t service, uint32_t first, uint32_t last);
+  uint32_t scan_rtt_sum_ms_{0};  // request to answer, answered requests only
+  uint32_t scan_rtt_max_ms_{0};
+  void scan_answered_();
   int fault_code_{-1};
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
@@ -105,6 +133,7 @@ class HydronicS3 : public Component {
   text_sensor::TextSensor *fault_text_{nullptr};
   text_sensor::TextSensor *event_text_{nullptr};
   text_sensor::TextSensor *fault_codes_text_{nullptr};
+  text_sensor::TextSensor *diag_response_text_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};

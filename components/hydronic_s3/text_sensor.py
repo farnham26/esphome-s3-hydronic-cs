@@ -10,6 +10,7 @@ CONF_STATE = "state"
 CONF_FAULT = "fault"
 CONF_EVENT = "event"
 CONF_FAULT_CODES = "fault_codes"
+CONF_DIAG_RESPONSE = "diag_response"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -18,6 +19,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FAULT): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_EVENT): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_FAULT_CODES): text_sensor.text_sensor_schema(),
+        cv.Optional(CONF_DIAG_RESPONSE): text_sensor.text_sensor_schema(),
     }
 )
 
@@ -32,3 +34,5 @@ async def to_code(config):
         cg.add(parent.set_event_text_sensor(await text_sensor.new_text_sensor(conf)))
     if conf := config.get(CONF_FAULT_CODES):
         cg.add(parent.set_fault_codes_text_sensor(await text_sensor.new_text_sensor(conf)))
+    if conf := config.get(CONF_DIAG_RESPONSE):
+        cg.add(parent.set_diag_response_text_sensor(await text_sensor.new_text_sensor(conf)))

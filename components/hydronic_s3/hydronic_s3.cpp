@@ -38,6 +38,9 @@ static constexpr uint32_t ID_HEARTBEAT = 0x625;
 static constexpr uint32_t ID_DIAG_REQUEST = 0x7A0;
 static constexpr uint32_t ID_DIAG_RESPONSE = 0x73C;
 static constexpr uint8_t ISOTP_PAD = 0xAA;
+static constexpr uint32_t DIAG_TIMEOUT_MS = 200;
+static constexpr uint32_t DIAG_PENDING_TIMEOUT_MS = 2000;  // after NRC 0x78 "response pending"
+static constexpr uint8_t NRC_RESPONSE_PENDING = 0x78;
 static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 static constexpr uint8_t STATE_FAULT = 0x0B;
 
@@ -207,6 +210,82 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   }
 }
 
+void HydronicS3::scan_dids(uint16_t first, uint16_t last) { this->start_scan_(0x22, first, last); }
+void HydronicS3::scan_local_ids(uint8_t first, uint8_t last) { this->start_scan_(0x21, first, last); }
+
+void HydronicS3::start_scan_(uint8_t service, uint32_t first, uint32_t last) {
+  if (this->scan_active_ || !this->listen_only_hook_ || !this->listen_only_hook_(false)) {
+    ESP_LOGW(TAG, "scan not started");
+    return;
+  }
+  this->scan_service_ = service;
+  std::fill(std::begin(this->nrc_count_), std::end(this->nrc_count_), 0);
+  this->scan_active_ = true;
+  this->scan_awaiting_ = false;
+  this->scan_next_ = first;
+  this->scan_last_ = last;
+  this->scan_positive_ = this->scan_negative_ = this->scan_silent_ = 0;
+  this->scan_rtt_sum_ms_ = this->scan_rtt_max_ms_ = 0;
+  ESP_LOGI(TAG, "scan service %02X, %04X..%04X", service, (unsigned) first, (unsigned) last);
+}
+
+void HydronicS3::loop() {
+  if (!this->scan_active_)
+    return;
+  const uint32_t now = millis();
+  if (this->scan_awaiting_) {
+    if (now - this->scan_sent_ms_ < this->scan_timeout_ms_)
+      return;
+    this->scan_awaiting_ = false;
+    this->scan_silent_++;
+  }
+  if (this->scan_next_ > this->scan_last_) {
+    this->scan_active_ = false;
+    this->diag_requested_ = false;
+    this->listen_only_hook_(true);
+    char buf[160];
+    const unsigned answered = this->scan_positive_ + this->scan_negative_;
+    int n = snprintf(buf, sizeof(buf), "scan %02X done: %u positive, %u negative, %u silent, answer avg %u ms max %u ms, NRC",
+                     this->scan_service_, this->scan_positive_, this->scan_negative_, this->scan_silent_,
+                     answered ? (unsigned) (this->scan_rtt_sum_ms_ / answered) : 0u, (unsigned) this->scan_rtt_max_ms_);
+    for (int nrc = 0; nrc < 256 && n < (int) sizeof(buf) - 12; nrc++)
+      if (this->nrc_count_[nrc] != 0)
+        n += snprintf(buf + n, sizeof(buf) - n, " %02X:%u", nrc, this->nrc_count_[nrc]);
+    this->publish_diag_(buf);
+    return;
+  }
+  const uint16_t id = static_cast<uint16_t>(this->scan_next_++);
+  std::vector<uint8_t> req;
+  if (this->scan_service_ == 0x21)
+    req = {0x02, 0x21, static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
+  else
+    req = {0x03, 0x22, static_cast<uint8_t>(id >> 8), static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD,
+           ISOTP_PAD};
+  this->diag_requested_ = true;
+  this->scan_awaiting_ = true;
+  this->scan_sent_ms_ = now;
+  this->scan_timeout_ms_ = DIAG_TIMEOUT_MS;
+  this->canbus_->send_data(ID_DIAG_REQUEST, false, req);
+}
+
+void HydronicS3::scan_answered_() {
+  if (!this->scan_awaiting_)
+    return;
+  const uint32_t rtt = millis() - this->scan_sent_ms_;
+  this->scan_rtt_sum_ms_ += rtt;
+  if (rtt > this->scan_rtt_max_ms_)
+    this->scan_rtt_max_ms_ = rtt;
+  this->scan_awaiting_ = false;
+}
+
+void HydronicS3::publish_diag_(const std::string &text) {
+  ESP_LOGI(TAG, "diag %s", text.c_str());
+#ifdef USE_TEXT_SENSOR
+  if (this->diag_response_text_ != nullptr)
+    this->diag_response_text_->publish_state(text);
+#endif
+}
+
 void HydronicS3::request_fault_codes(uint8_t status_mask) {
   this->diag_requested_ = true;
   const std::vector<uint8_t> req{0x03, 0x19, 0x02, status_mask, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
@@ -256,6 +335,41 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
 // UDS responses of interest. 59 02 <mask> {DTC hi mid lo, status}*: ReadDTCInformation
 // by status mask, as requested by the EasyStart's error-memory readout.
 void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
+  if ((payload.size() >= 3 && payload[0] == 0x62) || (payload.size() >= 2 && payload[0] == 0x61)) {
+    // Positive response: 62 <DID hi lo> data (22) or 61 <local id> data (21).
+    const size_t data_at = payload[0] == 0x62 ? 3 : 2;
+    std::string text;
+    char buf[8];
+    if (payload[0] == 0x62)
+      snprintf(buf, sizeof(buf), "%02X%02X:", payload[1], payload[2]);
+    else
+      snprintf(buf, sizeof(buf), "L%02X:", payload[1]);
+    text = buf;
+    std::string ascii;
+    for (size_t i = data_at; i < payload.size(); i++) {
+      snprintf(buf, sizeof(buf), " %02X", payload[i]);
+      text += buf;
+      ascii += payload[i] >= 0x20 && payload[i] < 0x7F ? static_cast<char>(payload[i]) : '.';
+    }
+    text += " '" + ascii + "'";
+    this->scan_positive_++;
+    this->scan_answered_();
+    this->publish_diag_(text);
+    return;
+  }
+  if (payload.size() >= 3 && payload[0] == 0x7F) {  // negative response
+    if (payload[2] == NRC_RESPONSE_PENDING) {
+      this->scan_sent_ms_ = millis();
+      this->scan_timeout_ms_ = DIAG_PENDING_TIMEOUT_MS;
+      return;
+    }
+    if (payload[1] == this->scan_service_) {
+      this->scan_negative_++;
+      this->nrc_count_[payload[2]]++;
+    }
+    this->scan_answered_();
+    return;
+  }
   if (payload.size() < 3 || payload[0] != 0x59 || payload[1] != 0x02)
     return;
   std::string text;

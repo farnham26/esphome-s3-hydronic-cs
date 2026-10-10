@@ -12,6 +12,12 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: Hydronic S3
+  on_boot:
+    - priority: 200
+      then:
+        # hydronic_s3 leaves listen-only only for its diagnostic requests.
+        - lambda: |-
+            id(heater).set_listen_only_hook([](bool listen_only) { return id(heater_can)->set_listen_only(listen_only); });
 
 packages:
   board: !include boards/m5stack-fire.yaml
@@ -92,6 +98,7 @@ canbus:
 hydronic_s3:
   id: heater
   canbus_id: heater_can
+
 
 # No GPIO one_wire/dallas_temp here: its bit-banging locks interrupts on the
 # loop core long enough to block the MCP2515 INT ISR during frame bursts (RX
@@ -345,7 +352,53 @@ sensor:
     web_server:
       sorting_group_id: group_heater
 
+number:
+  # DID scan range (decimal in the UI, 0..65535).
+  - platform: template
+    id: did_from
+    name: "DID Scan From"
+    entity_category: config
+    min_value: 0
+    max_value: 65535
+    step: 1
+    mode: box
+    optimistic: true
+    initial_value: 0
+    web_server:
+      sorting_group_id: group_heater
+  - platform: template
+    id: did_to
+    name: "DID Scan To"
+    entity_category: config
+    min_value: 0
+    max_value: 65535
+    step: 1
+    mode: box
+    optimistic: true
+    initial_value: 4095
+    web_server:
+      sorting_group_id: group_heater
+
 button:
+  - platform: template
+    name: "Scan Local IDs"
+    web_server:
+      sorting_group_id: group_heater
+    on_press:
+      - lambda: "id(heater).scan_local_ids(0x00, 0xFF);"
+  - platform: template
+    name: "Scan DID Range"
+    web_server:
+      sorting_group_id: group_heater
+    on_press:
+      - lambda: "id(heater).scan_dids((uint16_t) id(did_from).state, (uint16_t) id(did_to).state);"
+  # UDS identification DIDs (read-only); results in "Diag Response".
+  - platform: template
+    name: "Scan Identification DIDs"
+    web_server:
+      sorting_group_id: group_heater
+    on_press:
+      - lambda: "id(heater).scan_dids(0xF180, 0xF19F);"
   # Error-memory readout like the EasyStart's: the only time this node transmits.
   # Normal mode just for the request and response, then back to listen-only.
   - platform: template
@@ -371,6 +424,10 @@ text_sensor:
         sorting_group_id: group_heater
     fault_codes:
       name: "Heater Fault Codes"
+      web_server:
+        sorting_group_id: group_heater
+    diag_response:
+      name: "Diag Response"
       web_server:
         sorting_group_id: group_heater
     event:
