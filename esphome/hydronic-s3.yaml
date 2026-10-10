@@ -145,11 +145,20 @@ font:
     id: font_body
     size: 18
     glyphsets: [GF_Latin_Kernel]
-    glyphs: ["°", "Δ"]
+    glyphs: ["°", "Δ", "·"]
   - file: "gfonts://Roboto"
     id: font_big
     size: 48
     glyphs: "0123456789.-°C "
+  - file: "gfonts://Roboto"
+    id: font_mid
+    size: 30
+    glyphs: "0123456789.-°C "
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 14
+    glyphsets: [GF_Latin_Kernel]
+    glyphs: ["°", "·"]
   - file: "gfonts://Roboto Mono"
     id: font_mono
     size: 14
@@ -163,6 +172,16 @@ lvgl:
     - id: style_dim
       text_color: 0xA0A0A0
       text_font: font_body
+    - id: style_caption
+      text_color: 0x909090
+      text_font: font_small
+    - id: style_chip
+      height: 26
+      radius: 6
+      border_width: 0
+      pad_all: 0
+      bg_color: 0x303030
+      scrollbar_mode: "OFF"
   theme:
     label:
       text_color: 0xFFFFFF
@@ -191,21 +210,109 @@ lvgl:
                   text: "CAN --"
                   text_color: 0xFF4040
         - label:
-            id: lbl_outlet
             x: 10
-            y: 40
+            y: 34
+            styles: style_caption
+            text: "OUTLET"
+        - label:
+            id: lbl_outlet
+            x: 8
+            y: 48
             text_font: font_big
             text: "--.- °C"
         - label:
+            x: 200
+            y: 34
+            styles: style_caption
+            text: "INLET"
+        - label:
+            id: lbl_inlet
+            x: 200
+            y: 50
+            text_font: font_mid
+            text: "--.- °C"
+        - label:
+            id: lbl_dt
+            x: 200
+            y: 84
+            styles: style_dim
+            text: "ΔT -- K"
+        - bar:
+            id: bar_power
+            x: 10
+            y: 112
+            width: 300
+            height: 24
+            min_value: 0
+            max_value: 5600
+            value: 0
+            bg_color: 0x2A2A2A
+            radius: 5
+            indicator:
+              bg_color: 0xE06000
+              radius: 5
+        - label:
+            id: lbl_power
+            x: 10
+            y: 114
+            width: 300
+            text_align: CENTER
+            text: "-- W"
+        - obj:
+            id: chip_phase
+            x: 10
+            y: 144
+            width: 96
+            styles: style_chip
+            widgets:
+              - label:
+                  id: lbl_phase
+                  align: CENTER
+                  text: "--"
+        - obj:
+            id: chip_flame
+            x: 112
+            y: 144
+            width: 92
+            styles: style_chip
+            widgets:
+              - label:
+                  id: lbl_flame
+                  align: CENTER
+                  text: "FLAME"
+        - obj:
+            id: chip_glow
+            x: 210
+            y: 144
+            width: 100
+            styles: style_chip
+            widgets:
+              - label:
+                  id: lbl_glow
+                  align: CENTER
+                  text: "GLOW"
+        - label:
+            id: lbl_blower
+            x: 10
+            y: 178
+            text: "Blower -- rpm"
+        - label:
+            id: lbl_voltage
+            align: TOP_RIGHT
+            x: -10
+            y: 178
+            text: "-- V"
+        - label:
             id: lbl_heater
             x: 10
-            y: 100
+            y: 200
+            styles: style_dim
             text: ""
         - label:
             id: lbl_refs
             x: 10
-            y: 216
-            styles: style_dim
+            y: 222
+            styles: style_caption
             text: ""
     - id: page_bus
       bg_color: 0x000000
@@ -246,26 +353,70 @@ interval:
             if (std::isnan(v)) snprintf(out, len, "--");
             else snprintf(out, len, fmt, v);
           };
-          char inl[12], dt[12], pw[12], fu[12], gl[12], bl[12], v[12];
+          // Colours are set only on change: no needless invalidation.
+          auto bg = [](lv_obj_t *obj, uint32_t &last, uint32_t c) {
+            if (last != c) {
+              last = c;
+              lv_obj_set_style_bg_color(obj, lv_color_hex(c), 0);
+            }
+          };
+          auto fg = [](lv_obj_t *obj, uint32_t &last, uint32_t c) {
+            if (last != c) {
+              last = c;
+              lv_obj_set_style_text_color(obj, lv_color_hex(c), 0);
+            }
+          };
+          static uint32_t c_phase = 0, c_flame = 0, c_flame_t = 0, c_glow = 0, c_glow_t = 0;
+          static int32_t last_bar = -1;
+          char v1[16], v2[16];
           const float ti = id(s_inlet).state;
-          num(inl, sizeof(inl), ti, "%.1f");
-          num(dt, sizeof(dt), t - ti, "%.1f");
-          num(pw, sizeof(pw), id(s_power).state, "%.0f");
-          num(fu, sizeof(fu), id(s_fuel).state, "%.2f");
-          num(gl, sizeof(gl), id(s_glow).state, "%.0f");
-          num(bl, sizeof(bl), id(s_blower).state, "%.0f");
-          num(v, sizeof(v), id(s_voltage).state, "%.1f");
+          num(v1, sizeof(v1), ti, "%.1f °C");
+          set(id(lbl_inlet), std::isnan(ti) ? "--.- °C" : v1);
+          num(v1, sizeof(v1), t - ti, "%.1f");
+          snprintf(buf, sizeof(buf), "ΔT %s K", v1);
+          set(id(lbl_dt), buf);
+
+          const float pw = id(s_power).state;
+          num(v1, sizeof(v1), pw, "%.0f");
+          num(v2, sizeof(v2), id(s_fuel).state, "%.2f");
+          snprintf(buf, sizeof(buf), "%s W  ·  %s l/h", v1, v2);
+          set(id(lbl_power), buf);
+          const int32_t bar = std::isnan(pw) ? 0 : (int32_t) pw;
+          if (bar != last_bar) {
+            last_bar = bar;
+            lv_bar_set_value(id(bar_power), bar, LV_ANIM_OFF);
+          }
+
           const float ph = id(s_phase).state;
-          const char *phase = std::isnan(ph) ? nullptr : hydronic_s3::HydronicS3::phase_name((int) ph);
-          char phase_code[8];
-          snprintf(phase_code, sizeof(phase_code), std::isnan(ph) ? "--" : "0x%02X", std::isnan(ph) ? 0 : (int) ph);
-          snprintf(buf, sizeof(buf),
-                   "Inlet  %s °C   ΔT %s K\n%s  %s W  %s l/h\nFlame %s   Glow %s W\nBlower %s rpm   %s V\n"
-                   "State %s  Req %s  Fault %s",
-                   inl, dt, phase != nullptr ? phase : phase_code, pw, fu,
-                   !id(b_flame).has_state() ? "--" : id(b_flame).state ? "on" : "off", gl, bl, v,
-                   name != nullptr ? name : code, rq < 0 ? "--" : rq == 1 ? "on" : "off",
-                   fc < 0 ? "--" : fc == 0 ? "none" : "set");
+          const int phc = std::isnan(ph) ? -1 : (int) ph;
+          const char *phase = phc < 0 ? nullptr : hydronic_s3::HydronicS3::phase_name(phc);
+          if (phase == nullptr) snprintf(v1, sizeof(v1), phc < 0 ? "--" : "0x%02X", phc);
+          set(id(lbl_phase), phase != nullptr ? phase : v1);
+          bg(id(chip_phase), c_phase,
+             phc == 0x0C ? 0xA08000 : phc == 0x14 ? 0xC05000 : (phc == 0x1E || phc == 0x1F) ? 0x6A3C9A
+             : phc == 0x28 ? 0x245C9A : 0x303030);
+
+          const bool flame = id(b_flame).has_state() && id(b_flame).state;
+          set(id(lbl_flame), flame ? "FLAME" : "no flame");
+          bg(id(chip_flame), c_flame, flame ? 0xC02818 : 0x303030);
+          fg(id(lbl_flame), c_flame_t, flame ? 0xFFFFFF : 0x909090);
+
+          const float gl = id(s_glow).state;
+          const bool glow = !std::isnan(gl) && gl > 0;
+          if (glow) snprintf(v1, sizeof(v1), "GLOW %.0f W", gl);
+          set(id(lbl_glow), glow ? v1 : "glow off");
+          bg(id(chip_glow), c_glow, glow ? 0xB08800 : 0x303030);
+          fg(id(lbl_glow), c_glow_t, glow ? 0xFFFFFF : 0x909090);
+
+          num(v1, sizeof(v1), id(s_blower).state, "%.0f");
+          snprintf(buf, sizeof(buf), "Blower %s rpm", v1);
+          set(id(lbl_blower), buf);
+          num(v1, sizeof(v1), id(s_voltage).state, "%.1f");
+          snprintf(buf, sizeof(buf), "%s V", v1);
+          set(id(lbl_voltage), buf);
+
+          snprintf(buf, sizeof(buf), "%s  ·  req %s  ·  fault %s", name != nullptr ? name : code,
+                   rq < 0 ? "--" : rq == 1 ? "on" : "off", fc < 0 ? "--" : fc == 0 ? "none" : "set");
           set(id(lbl_heater), buf);
 
           snprintf(buf, sizeof(buf), "Bat %.0f%%%s   %s",
