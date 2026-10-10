@@ -49,6 +49,9 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
 - Flash **via OTA only** (user's rule; the Fire runs on the M5GO battery). After an OTA, never USB-reset within
   ~1 min: the new image is not yet marked valid and the bootloader rolls back.
 - Reader priority 23 (above lwIP tcpip 18, esp_timer 22); it holds the SPI bus per drain and drives CS itself.
+- Reader SPI path in IRAM: own IDF device (not the ESPHome delegate), `SPI_MASTER_IN_IRAM`, gpio_ll for CS/INT;
+  needs FreeRTOS/heap functions in IRAM (component reverts ESPHome's flash placement; IRAM 79 %).
+  Frame read ~57 µs, stress 1620 fps lossless.
   Never add GPIO one_wire (interrupt-locking bit-bang on the loop core) — it overflowed the MCP2515 every poll.
 
 ## Secrets
@@ -66,10 +69,8 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 1. Live check: 240 s RX overflow (seen before the DMA-safe SPI fix; the reader then malloc'd bounce buffers
    per read, contending with DHCP renewal allocations — likely cause). Production build logs a frozen reader
    timeline on any overflow (`can_diag`).
-2. Per-frame read max ~200 µs vs ~45 µs SPI cost: flash-cache misses on the reader path (ESPHome SPI delegate,
-   IDF spi_master, GPIO in flash). Option: own IDF device + IRAM hot path, or native TWAI (Unit CAN, Port B).
-3. S+ status bit: repeat test with EasyStart fully off.
-4. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
+2. S+ status bit: repeat test with EasyStart fully off.
+3. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
