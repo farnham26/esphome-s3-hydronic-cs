@@ -302,3 +302,12 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
   (6.65–7.35) in 86 s; EasyScan fuel test 8.2 cm³ (7.4–9.0) in 80 s. Our D6L warm restart 22:28 (24.6–26 V): FD11
   counter +4.30e6 in the first 65 s of pumping → ≈5.2 cm³ per 86 s. Confirms nl as counter unit (not stroke-exact:
   other type, start type, voltage).
+- **Confirmed** by the repair manual covering D6L 24 V CS (Reparaturanleitung Hydronic S3 CS 25.2696.95.2682.0E,
+  09.2020, §3.5.11): EasyScan pump test 7 Hz × 60 s = 12.4 cm³ (11.2–13.6) for D4E/D5E/D6L → **29.5 µl/stroke**
+  (26.7–32.4); FD11-derived 29.3 µl. Tech data D6L: 5600/1300 W, 0.65/0.15 l/h, 37/5 W, 20.4–32 V.
+
+### Water pump (Flowtronic 1400, 25.2435.99.2701; 24 V, max 35 W, 0.15 bar, 1400 l/h)
+- Repair-manual DTCs: P000250/251 open/short, P000252 short to +Ub or transistor, P000253 blockage, P000254
+  overcurrent shutdown, P000255 below minimum speed, P000256 dry run, P000257 overheating → pump reports status/speed
+  (smart pump). Pump power DID not yet found
+  (FD08 candidate: 20000 pause, ~23100 burn, ~24650 run-down).
