@@ -311,3 +311,21 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
   overcurrent shutdown, P000255 below minimum speed, P000256 dry run, P000257 overheating → pump reports status/speed
   (smart pump). Pump power DID not yet found
   (FD08 candidate: 20000 pause, ~23100 burn, ~24650 run-down).
+
+### Regulation observed (6 burns 22:19–23:15, loop throttled, no high load)
+Start fuel 70–73 µl/s (~39 % ≈ 2.2 kW) until outlet ≈75 °C; steps 67/64/61 at 75–77 °C; minimum 41 µl/s (1300 W)
+from ≈77 °C; pause at ≈83 °C; restart at ≈70.5 °C. Never above 40 % → upper regulation unseen. FD33
+(`02 46 64 47 5F 48 5A 49 50 4A 46 4B 3C 4C 00` = pairs 70/100 … 76/0?) does not match this as outlet→% curve; open.
+
+### Identification (text sensors)
+F193 HW 03.04.02, F195 SW 07.04.04, F1F0 BCD part 25.2745.01.5001 (D6L order no. 25.2745.05.0000), F1F5 serial
+<serial>. F1F3 `19 04 09 …` (date 2019-04-09?), F1F4 "04.02.00".
+
+### DTC extended data (19 06 <DTC> FF), 23:23, raw
+```
+P000252: 59 06 00 02 52 2E 01 69 00 01 A9 03 1D 3C 00 15 00 00 59 3A 26 D4 01 06 00 00 00 00 00 00 00 00 23 78 23 82 22 9C 1A 01 05
+P000222: 59 06 00 02 22 28 01 06 00 01 9B 78 1C A1 00 14 00 00 56 54 1F B8 00 F4 00 00 00 01 F5 00 00 01 2D 14 2D 3C 32 F0 1A 06 01
+```
+Candidate layout after status: record 01, occurrence count (0x69 = 105 / 6), operating minutes u32 (FD17 d1 format:
+108803 = 110 min before now / 105336), u16 (FD06-like), u16, u32 (FD17 d7-like), u16 (FD36-like), u16, 8 bytes
+(FD10-like for P000222), 3× temp (FD01 format: 40.8/40.9/38.6 °C resp. 65.4/65.8/80.4 °C), 0x1A (26 V?), 2 bytes.
