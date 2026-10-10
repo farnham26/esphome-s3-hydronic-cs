@@ -69,7 +69,10 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 1. Live check: 240 s RX overflow (seen before the DMA-safe SPI fix; the reader then malloc'd bounce buffers
    per read, contending with DHCP renewal allocations — likely cause). Production build logs a frozen reader
    timeline on any overflow (`can_diag`).
-2. S+ status bit: repeat test with EasyStart fully off.
+2. S+ start holds: `2C4` B2 `0x40` 1.7 s after a switch-on request, no start (see research.md). Read the error
+   memory after a failed start (decoded passively → "Heater Fault Codes"). Minimize ignitions (soot), esp. cold.
+   tempcontrol S+ relay: `POST http://tempcontrol.wifi.home/switch/TempControl%20S3%20Heater%20relay%20(real)/turn_on|turn_off`
+   (needs `-d ''`); keep its PID climate OFF.
 3. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
 
 ## Safety

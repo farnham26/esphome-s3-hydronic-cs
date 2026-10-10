@@ -97,3 +97,14 @@ IK1900301 (https://static.nhtsa.gov/odi/tsbs/2026/MC-11031193-0001.pdf):
   3xx control box / voltage / CAN (P000342 "too many CAN components"). Control box stores up to 10 faults.
 - No public source for 0x7A0/0x73C or UDS DIDs. No evidence the S3 emits J1939 HTR (PGN 65133).
 - P000342 implies a third-party controller must replace the EasyStart, not join as an extra node.
+
+## S+ start behaviour (2026-10-10 evening, EasyStart idle/off, tempcontrol relay on S+)
+- S+ on wakes the bus: heater boot frame (`2C4` state `00`, B4–B5 `FE FF`), ~0.25 s later state `03`,
+  **`625` B1 `00 → 10`** (switch-on request seen). `625` B1 drops to `00` within ~0.6 s of S+ off.
+- Failed starts (3 of 4 attempts, warm and cold): **`2C4` B2 = `0x40` exactly 1.7 s after the request**, heater
+  stays idle (`03`), no ignition, for minutes. Cleared together with the request. EasyStart `054` = `00 00`
+  (off) throughout. One OFF/ON toggle once led to a start, once not — matches tempcontrol's retry habit.
+- On the Hydronic `0x40` is therefore "start held/refused", not the Airtronic overtemperature code.
+- Open: cause of the hold. User reports a DTC in the error memory after failed starts → read it (passive decode
+  on `0x73C` is in place: "Heater Fault Codes"). Hypothesis to test: conflict between S+ and the EasyStart's
+  active "off" command.
