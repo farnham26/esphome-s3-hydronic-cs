@@ -1,0 +1,7 @@
+.esphome/
+/work/
+secrets.yaml
+*.bin
+__pycache__/
+*.pyc
+secrets.yml
