@@ -186,8 +186,10 @@ interval:
               lv_label_set_text(lbl, txt);
           };
           char buf[512];
-          snprintf(buf, sizeof(buf), "Flow %.1f  Ret %.1f  Pump %.2f Hz\n%s",
+          snprintf(buf, sizeof(buf), "Flow %.1f  Ret %.1f  Pump %.2f Hz\nBat %.0f%%%s   %s",
                    id(coolant_flow).state, id(coolant_return).state, id(pump_rate).state,
+                   id(battery_level).state,
+                   id(battery_full).state ? " full" : id(battery_charging).state ? " chg" : "",
                    id(wifi_ip).state.empty() ? "no wifi" : id(wifi_ip).state.c_str());
           set(id(lbl_refs), buf);
 

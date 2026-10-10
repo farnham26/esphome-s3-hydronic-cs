@@ -87,3 +87,47 @@ binary_sensor:
     name: "Status"
     web_server:
       sorting_group_id: group_board
+  # Published by battery_level below.
+  - platform: template
+    id: battery_charging
+    name: "Battery Charging"
+    web_server:
+      sorting_group_id: group_board
+  - platform: template
+    id: battery_full
+    name: "Battery Charged"
+    web_server:
+      sorting_group_id: group_board
+
+# IP5306 power IC (M5GO battery). No voltage ADC: only a 4-step gauge and
+# charge flags. Register semantics per the emobotics m5stack-core BSP.
+i2c_device:
+  - id: ip5306
+    i2c_id: bsp_bus
+    address: 0x75
+
+sensor:
+  - platform: template
+    id: battery_level
+    name: "Battery Level"
+    unit_of_measurement: "%"
+    device_class: battery
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: |-
+      uint8_t gauge, read0, read1;
+      if (id(ip5306).read_register(0x78, &gauge, 1) != i2c::ERROR_OK ||
+          id(ip5306).read_register(0x70, &read0, 1) != i2c::ERROR_OK ||
+          id(ip5306).read_register(0x71, &read1, 1) != i2c::ERROR_OK)
+        return NAN;
+      id(battery_charging).publish_state(read0 & 0x08);
+      id(battery_full).publish_state(read1 & 0x08);
+      switch (gauge & 0xF0) {  // LED-gauge code, runs backwards
+        case 0x00: return 100;
+        case 0x80: return 75;
+        case 0xC0: return 50;
+        case 0xE0: return 25;
+        default: return 0;
+      }
+    web_server:
+      sorting_group_id: group_board
