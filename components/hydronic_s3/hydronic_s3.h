@@ -46,6 +46,8 @@ class HydronicS3 : public Component {
 #ifdef USE_TEXT_SENSOR
   void set_state_text_sensor(text_sensor::TextSensor *s) { this->state_text_ = s; }
   void set_fault_text_sensor(text_sensor::TextSensor *s) { this->fault_text_ = s; }
+  void set_event_text_sensor(text_sensor::TextSensor *s) { this->event_text_ = s; }
+  void set_fault_codes_text_sensor(text_sensor::TextSensor *s) { this->fault_codes_text_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
@@ -72,6 +74,9 @@ class HydronicS3 : public Component {
   void on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data);
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
+  void event_(const char *what, int from, int to);
+  void diag_response_(const std::vector<uint8_t> &data);
+  void uds_(const std::vector<uint8_t> &payload);
 
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
@@ -81,6 +86,10 @@ class HydronicS3 : public Component {
   int state_{-1};
   int on_request_raw_{-1};
   float controller_temp_c_{NAN};
+  int command_raw_{-1};       // 0x054 B0 << 8 | B1
+  int switch_input_raw_{-1};  // 0x625 B1
+  std::vector<uint8_t> isotp_buf_;  // diagnostic response being reassembled
+  size_t isotp_len_{0};
   int fault_code_{-1};
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
@@ -90,6 +99,8 @@ class HydronicS3 : public Component {
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *state_text_{nullptr};
   text_sensor::TextSensor *fault_text_{nullptr};
+  text_sensor::TextSensor *event_text_{nullptr};
+  text_sensor::TextSensor *fault_codes_text_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};

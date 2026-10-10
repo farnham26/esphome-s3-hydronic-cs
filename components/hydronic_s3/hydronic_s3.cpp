@@ -22,24 +22,32 @@ static constexpr uint8_t QUIET_AFTER_CHANGES = 16;
 //   0x2C4 B1      bit 3: burner run-down (~65-90 s, into control pause or at switch-off)
 //   0x2C4 B4..B5  outlet coolant temperature, 0.1 degC, offset -50 degC
 //                 (holds ~75 degC in regulation, drops at once when the mixer opens)
-//   0x2C4 B2      fault code (Airtronic S3 RE, not yet seen on the Hydronic): 0x20 flame
-//                 loss, 0x40 overtemperature; set in state 0x0B and ~26 s after
+//   0x2C4 B2      flags. Airtronic S3 RE: fault code in state 0x0B (0x20 flame loss, 0x40
+//                 overtemperature). Hydronic: 0x40 set 1.7 s after a switch-on request whose
+//                 start is held/refused (heater stays idle), cleared with the request
+//   0x2C4 B4..B5  FE FF = not available (first frame after the heater wakes, state 0x00)
+//   0x625 B1      0x10 while a switch-on request is active (S+ or EasyStart), 0x00 otherwise
 //   0x054 B0      controller -> heater: 0x01 heater requested on, 0x00 off
 //   0x065 B0..B1  controller -> heater: controller (EasyStart) room temperature, same
 //                 encoding as the outlet temperature (hypothesis: 18-19 degC, 1 K steps)
 static constexpr uint32_t ID_COMMAND = 0x054;
 static constexpr uint32_t ID_CONTROLLER_STATUS = 0x065;
 static constexpr uint32_t ID_STATUS = 0x2C4;
+static constexpr uint32_t ID_HEARTBEAT = 0x625;
+// Diagnostics: UDS over ISO-TP, tester 0x7A0 -> heater 0x73C.
+static constexpr uint32_t ID_DIAG_RESPONSE = 0x73C;
+static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 static constexpr uint8_t STATE_FAULT = 0x0B;
-static constexpr uint8_t FAULT_FLAME_LOSS = 0x20;
-static constexpr uint8_t FAULT_OVERTEMP = 0x40;
 
 static float decode_temperature(const std::vector<uint8_t> &data, size_t offset) {
-  return ((data[offset] | data[offset + 1] << 8) - 500) * 0.1f;
+  const uint16_t raw = data[offset] | data[offset + 1] << 8;
+  return raw >= NOT_AVAILABLE ? NAN : (raw - 500) * 0.1f;
 }
 
 const char *HydronicS3::state_name(int state) {
   switch (state) {
+    case 0x00:
+      return "init";
     case 0x03:
       return "idle";
     case 0x05:
@@ -114,10 +122,23 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   s.last_ms = now;
 }
 
+// Transitions with the device time, as one entity state each: entity updates
+// reach HA reliably where log lines are dropped on a weak link.
+void HydronicS3::event_(const char *what, int from, int to) {
+  char buf[48];
+  snprintf(buf, sizeof(buf), "%u.%03u %s %02X->%02X", (unsigned) (millis() / 1000), (unsigned) (millis() % 1000), what,
+           from & 0xFFFF, to & 0xFFFF);
+  ESP_LOGI(TAG, "event %s", buf);
+#ifdef USE_TEXT_SENSOR
+  if (this->event_text_ != nullptr)
+    this->event_text_->publish_state(buf);
+#endif
+}
+
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   if (can_id == ID_STATUS && data.size() >= 6) {
     const float temp = decode_temperature(data, 4);
-    if (temp != this->outlet_temp_c_) {
+    if (!std::isnan(temp) && temp != this->outlet_temp_c_) {
       this->outlet_temp_c_ = temp;
 #ifdef USE_SENSOR
       if (this->outlet_temperature_ != nullptr)
@@ -125,6 +146,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
 #endif
     }
     if (data[0] != this->state_) {
+      this->event_("state", this->state_, data[0]);
       this->state_ = data[0];
       const char *name = state_name(this->state_);
       ESP_LOGI(TAG, "state 0x%02X (%s)", this->state_, name != nullptr ? name : "unknown");
@@ -141,40 +163,102 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
 #endif
     }
     if (data[2] != this->fault_code_) {
+      this->event_("flags", this->fault_code_, data[2]);
       this->fault_code_ = data[2];
       std::string text = "OK";
       if (this->fault_code_ != 0) {
-        text = "";
-        if (this->fault_code_ & FAULT_FLAME_LOSS)
-          text += "flame loss ";
-        if (this->fault_code_ & FAULT_OVERTEMP)
-          text += "overtemperature ";
-        char code[8];
-        snprintf(code, sizeof(code), "0x%02X", this->fault_code_);
-        text += code;
-        ESP_LOGW(TAG, "fault code %s", text.c_str());
+        // Bit meanings differ from the Airtronic (see table above): report raw.
+        char code[24];
+        snprintf(code, sizeof(code), "flags 0x%02X", this->fault_code_);
+        text = code;
+        ESP_LOGW(TAG, "%s", code);
       }
 #ifdef USE_TEXT_SENSOR
       if (this->fault_text_ != nullptr)
         this->fault_text_->publish_state(text);
 #endif
     }
+  } else if (can_id == ID_DIAG_RESPONSE && !data.empty()) {
+    this->diag_response_(data);
   } else if (can_id == ID_CONTROLLER_STATUS && data.size() >= 2) {
     const float temp = decode_temperature(data, 0);
-    if (temp != this->controller_temp_c_) {
+    if (!std::isnan(temp) && temp != this->controller_temp_c_) {
       this->controller_temp_c_ = temp;
 #ifdef USE_SENSOR
       if (this->controller_temperature_ != nullptr)
         this->controller_temperature_->publish_state(temp);
 #endif
     }
-  } else if (can_id == ID_COMMAND && !data.empty() && data[0] != this->on_request_raw_) {
+  } else if (can_id == ID_HEARTBEAT && data.size() >= 2) {
+    if (data[1] != this->switch_input_raw_) {
+      this->event_("request", this->switch_input_raw_, data[1]);
+      this->switch_input_raw_ = data[1];
+    }
+  } else if (can_id == ID_COMMAND && data.size() >= 2 && (data[0] << 8 | data[1]) != this->command_raw_) {
+    this->event_("command", this->command_raw_, data[0] << 8 | data[1]);
+    this->command_raw_ = data[0] << 8 | data[1];
     this->on_request_raw_ = data[0];
 #ifdef USE_BINARY_SENSOR
     if (this->on_request_ != nullptr)
       this->on_request_->publish_state(data[0] == 0x01);
 #endif
   }
+}
+
+// ISO-TP reassembly of the heater's diagnostic responses (single, first and
+// consecutive frames; flow control comes from the tester on 0x7A0).
+void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
+  switch (data[0] >> 4) {
+    case 0x0: {  // single frame
+      const size_t len = data[0] & 0x0F;
+      if (len >= 1 && len < data.size())
+        this->uds_(std::vector<uint8_t>(data.begin() + 1, data.begin() + 1 + len));
+      this->isotp_len_ = 0;
+      break;
+    }
+    case 0x1:  // first frame
+      if (data.size() < 2)
+        return;
+      this->isotp_len_ = (data[0] & 0x0F) << 8 | data[1];
+      this->isotp_buf_.assign(data.begin() + 2, data.end());
+      break;
+    case 0x2:  // consecutive frame
+      if (this->isotp_len_ == 0)
+        return;
+      this->isotp_buf_.insert(this->isotp_buf_.end(), data.begin() + 1, data.end());
+      if (this->isotp_buf_.size() >= this->isotp_len_) {
+        this->isotp_buf_.resize(this->isotp_len_);
+        this->isotp_len_ = 0;
+        this->uds_(this->isotp_buf_);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+// UDS responses of interest. 59 02 <mask> {DTC hi mid lo, status}*: ReadDTCInformation
+// by status mask, as requested by the EasyStart's error-memory readout.
+void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
+  if (payload.size() < 3 || payload[0] != 0x59 || payload[1] != 0x02)
+    return;
+  std::string text;
+  for (size_t i = 3; i + 4 <= payload.size(); i += 4) {
+    char dtc[20];
+    snprintf(dtc, sizeof(dtc), "%sP%02X%02X%02X (%02X)", text.empty() ? "" : ", ", payload[i], payload[i + 1],
+             payload[i + 2], payload[i + 3]);
+    text += dtc;
+  }
+  if (text.empty())
+    text = "none";
+  char head[48];
+  snprintf(head, sizeof(head), "mask %02X: ", payload[2]);
+  text = head + text;
+  ESP_LOGI(TAG, "fault codes %s", text.c_str());
+#ifdef USE_TEXT_SENSOR
+  if (this->fault_codes_text_ != nullptr)
+    this->fault_codes_text_->publish_state(text);
+#endif
 }
 
 void HydronicS3::dump_ids_() {
