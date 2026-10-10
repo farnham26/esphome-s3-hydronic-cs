@@ -213,7 +213,7 @@ Decodes (C = confirmed against CAN outlet / phase timing, ? = candidate):
 | FD01 | 3× u16 BE, °C = v/100 − 50: [flame/exhaust sensor?, inlet (C), outlet (C)] | outlet = `2C4` ±0.1; inlet ~3 K below while burning, = outlet in pause; w1 133 °C burning → 71 °C |
 | FD10 B1 | phase (C): 0x14 burn, 0x1F run-down (~90 s), 0x28 pause | B5 sub-phase, B6–7 timer 0.01 s (0x1B59 when idle) |
 | FD09 | blower rpm? | ~2000 burn, 2900 run-down, 0 pause |
-| FD04 | supply V ×0.1? | 26.0/26.1 V, 25.1 V in run-down |
+| FD04 | supply V ×0.1 (C: 26.0 vs. 26.14 V multimeter) | 26.0/26.1 V, 25.1 V in run-down |
 | FD0A, FD0C | glow plug? | non-zero only in run-down (0x0351, 0x34) |
 | FD0D | metering pump ×0.1 Hz? | 0x0E burn → 0; earlier 0x11–0x17 |
 | FD11 | B1 0x29 → 00 at stop; B6–9 counter, counts only while burning | |

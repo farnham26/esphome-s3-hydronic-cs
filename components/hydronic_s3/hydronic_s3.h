@@ -38,7 +38,7 @@ struct IdState {
 enum DidSensor : uint8_t {
   DID_INLET_TEMPERATURE,      // FD01 w2, v/100 - 50 °C
   DID_FLAME_SENSOR_TEMP,      // FD01 w1
-  DID_SUPPLY_VOLTAGE,         // FD04 0.1 V (?)
+  DID_SUPPLY_VOLTAGE,         // FD04 0.1 V (26.0 vs. 26.14 V measured)
   DID_BLOWER_SPEED,           // FD09 rpm (?)
   DID_GLOW_PLUG_POWER,        // FD0A 0.1 W (?)
   DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (?)
