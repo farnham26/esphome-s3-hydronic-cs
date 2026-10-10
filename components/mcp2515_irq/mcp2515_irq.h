@@ -83,6 +83,9 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   /// Snapshot of the controller state, for diagnosing a stalled reader or a faulty bus.
   void read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low);
   /// Worst INT-edge-to-reader-wake latency and drain duration since the last call, in us.
+  /// Switches between listen-only (no ACK, no TX) and normal mode at runtime,
+  /// e.g. for a diagnostic request. Returns false if the controller refused.
+  bool set_listen_only(bool listen_only);
   /// Logs the reader timeline frozen at the last RX overflow (once per overflow).
   void log_overflow_trace();
   void take_latency_max(uint32_t &wake_us, uint32_t &drain_us, uint32_t &frame_us) {

@@ -152,6 +152,22 @@ bool MCP2515::setup_internal() {
   return true;
 }
 
+bool MCP2515::set_listen_only(bool listen_only) {
+  if (this->spi_mutex_ != nullptr)
+    xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
+  if (listen_only) {
+    // An unacknowledged frame (nobody awake on the bus) would stay pending and
+    // go out stale at the next switch to normal mode: abort it first.
+    for (const auto &txb : TXB)
+      this->modify_register_(txb.CTRL, TXB_TXREQ, 0);
+  }
+  const bool ok = this->set_mode_(listen_only ? CANCTRL_REQOP_LISTENONLY : CANCTRL_REQOP_NORMAL) == canbus::ERROR_OK;
+  if (this->spi_mutex_ != nullptr)
+    xSemaphoreGive(this->spi_mutex_);
+  ESP_LOGI(TAG, "%s mode%s", listen_only ? "listen-only" : "normal", ok ? "" : " FAILED");
+  return ok;
+}
+
 void MCP2515::read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low) {
   if (this->spi_mutex_ != nullptr)
     xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
