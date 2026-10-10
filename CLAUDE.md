@@ -61,11 +61,15 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
 ## Next steps
-1. Fix: RX overflow every exactly 240 s (live: 18:59:15.271, 19:03:15.272). Reproduce with the loopback stress.
-2. Per-frame read takes 300–700 µs with the bus held (expected ~50 µs): find where.
-3. S+ (switch input, used by tempcontrol) status bit: repeat test with EasyStart fully off.
-4. Power, pump rate, inlet temp, flame, glow plug: not cyclic → UDS `22` ReadDataByIdentifier on
-   `0x7A0`/`0x73C` (needs TX; DIDs unknown; safety review first). Passive DTC decode of EasyStart readouts.
+1. RX overflow every exactly 240 s from boot, **live only** (not on the loopback bench; DHCP T1 renewal of an
+   8-min lease suspected). The production build freezes the reader timeline at an overflow and logs it in
+   `can_diag` — capture one live, then fix.
+2. Per-frame read max 200–700 µs although SPI costs ~61 µs (bench: CANINTF 16.5 µs, RX buffer 28.2 µs):
+   interruptions, likely flash/PSRAM cache misses → IRAM hot path, or native TWAI (Unit CAN on Port B G26/G36).
+3. TX: in loopback the MCP2515 transmits a frame twice right after boot (no TXERR/MLOA/ABTF; RX path
+   verified clean). Resolve before any real TX (UDS requests).
+4. S+ status bit: repeat test with EasyStart fully off.
+5. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
