@@ -115,6 +115,23 @@ void MCP2515::read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_lo
   int_low = this->interrupt_pin_ != nullptr && !this->interrupt_pin_->digital_read();
 }
 
+void MCP2515::trace_(TraceType type, uint8_t intf, int64_t us) {
+  this->trace_buf_[this->trace_head_] = {static_cast<uint32_t>(us), type, intf};
+  this->trace_head_ = (this->trace_head_ + 1) % TRACE_LEN;
+}
+
+void MCP2515::log_overflow_trace() {
+  if (!this->frozen_pending_.exchange(false))
+    return;
+  static const char *const NAMES[] = {"isr", "wake", "rxb0", "rxb1", "end", "OVERFLOW"};
+  const uint32_t t0 = this->frozen_[this->frozen_head_].us;
+  ESP_LOGW(TAG, "reader timeline before overflow (us relative to oldest event):");
+  for (size_t i = 0; i < TRACE_LEN; i++) {
+    const TraceEvent &e = this->frozen_[(this->frozen_head_ + i) % TRACE_LEN];
+    ESP_LOGW(TAG, "  %8u %-8s intf=%02X", (unsigned) (e.us - t0), NAMES[e.type], e.intf);
+  }
+}
+
 void IRAM_ATTR MCP2515::gpio_isr_(MCP2515 *self) {
   self->isr_us_ = esp_timer_get_time();
   BaseType_t woken = pdFALSE;
@@ -128,6 +145,9 @@ void MCP2515::reader_task_(void *arg) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     const int64_t woke = esp_timer_get_time();
     const int64_t isr_us = self->isr_us_;
+    if (isr_us != 0)
+      self->trace_(TRACE_ISR, 0, isr_us);
+    self->trace_(TRACE_WAKE, 0, woke);
     // isr_us_ == 0: the edge fell while draining and its frames are already read.
     if (isr_us != 0 && woke - isr_us > self->max_wake_us_)
       self->max_wake_us_ = woke - isr_us;
@@ -137,6 +157,7 @@ void MCP2515::reader_task_(void *arg) {
       self->drain_();
     } while (!self->interrupt_pin_->digital_read());
     self->isr_us_ = 0;
+    self->trace_(TRACE_DRAIN_END, 0, esp_timer_get_time());
     const uint32_t drain_us = esp_timer_get_time() - woke;
     if (drain_us > self->max_drain_us_)
       self->max_drain_us_ = drain_us;
@@ -159,17 +180,26 @@ void MCP2515::drain_() {
     // frame, so re-check RXB1 right after freeing RXB0 (as Linux mcp251x does).
     if (intf & CANINTF_RX0IF) {
       this->receive_(RXB0);
+      this->trace_(TRACE_RXB0, intf, esp_timer_get_time());
       const uint32_t frame_us = esp_timer_get_time() - t0;
       if (frame_us > this->max_frame_us_)
         this->max_frame_us_ = frame_us;
       if ((intf & CANINTF_RX1IF) == 0)
         intf |= this->read_intf_() & (CANINTF_RX1IF | CANINTF_ERRIF | CANINTF_MERRF);
     }
-    if (intf & CANINTF_RX1IF)
+    if (intf & CANINTF_RX1IF) {
       this->receive_(RXB1);
+      this->trace_(TRACE_RXB1, intf, esp_timer_get_time());
+    }
     if (intf & CANINTF_ERRIF) {
       if (this->read_register_(MCP_EFLG) & (EFLG_RX0OVR | EFLG_RX1OVR)) {
         this->rx_overflows_++;
+        this->trace_(TRACE_OVERFLOW, intf, esp_timer_get_time());
+        if (!this->frozen_pending_) {
+          std::copy(std::begin(this->trace_buf_), std::end(this->trace_buf_), std::begin(this->frozen_));
+          this->frozen_head_ = this->trace_head_;
+          this->frozen_pending_ = true;
+        }
         ESP_LOGW(TAG, "RX overflow #%u (frames read %u)", (unsigned) this->rx_overflows_,
                  (unsigned) this->frames_read_);
         this->modify_register_(MCP_EFLG, EFLG_RX0OVR | EFLG_RX1OVR, 0);

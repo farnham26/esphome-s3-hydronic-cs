@@ -82,6 +82,8 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   /// Snapshot of the controller state, for diagnosing a stalled reader or a faulty bus.
   void read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low);
   /// Worst INT-edge-to-reader-wake latency and drain duration since the last call, in us.
+  /// Logs the reader timeline frozen at the last RX overflow (once per overflow).
+  void log_overflow_trace();
   void take_latency_max(uint32_t &wake_us, uint32_t &drain_us, uint32_t &frame_us) {
     wake_us = this->max_wake_us_.exchange(0);
     drain_us = this->max_drain_us_.exchange(0);
@@ -136,6 +138,21 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   std::atomic<uint32_t> max_drain_us_{0};
   std::atomic<uint32_t> max_frame_us_{0};  // one frame: CANINTF read + RX buffer read + queue
   volatile int64_t isr_us_{0};  // time of the last INT edge
+
+  // Reader timeline: recent events, frozen at an RX overflow for post-mortem.
+  enum TraceType : uint8_t { TRACE_ISR, TRACE_WAKE, TRACE_RXB0, TRACE_RXB1, TRACE_DRAIN_END, TRACE_OVERFLOW };
+  struct TraceEvent {
+    uint32_t us;  // esp_timer_get_time(), truncated
+    TraceType type;
+    uint8_t intf;
+  };
+  static constexpr size_t TRACE_LEN = 32;
+  void trace_(TraceType type, uint8_t intf, int64_t us);
+  TraceEvent trace_buf_[TRACE_LEN]{};
+  size_t trace_head_{0};
+  TraceEvent frozen_[TRACE_LEN]{};
+  size_t frozen_head_{0};
+  std::atomic<bool> frozen_pending_{false};
 
   uint8_t read_register_(REGISTER reg);
   void read_registers_(REGISTER reg, uint8_t values[], uint8_t n);
