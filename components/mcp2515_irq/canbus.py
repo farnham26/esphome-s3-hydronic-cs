@@ -11,6 +11,8 @@ CODEOWNERS = ["@farnham26"]
 DEPENDENCIES = ["spi"]
 
 CONF_CLOCK = "clock"
+CONF_START_DELAY = "start_delay"
+CONF_SAFE_MODE_ID = "safe_mode_id"
 
 mcp2515_ns = cg.esphome_ns.namespace("mcp2515_irq")
 mcp2515 = mcp2515_ns.class_("MCP2515", CanbusComponent, spi.SPIDevice)
@@ -38,6 +40,10 @@ CONFIG_SCHEMA = canbus.CANBUS_SCHEMA.extend(
         # Without it, frames are polled from the main loop as in core mcp2515.
         cv.Optional(CONF_INTERRUPT_PIN): pins.internal_gpio_input_pin_schema,
         cv.Optional(CONF_RX_QUEUE_LEN, default=256): cv.int_range(min=8, max=4096),
+        # Reception starts after this; with safe_mode_id, the boot is marked successful
+        # (flash writes) right before, so they cannot overflow the RX buffers.
+        cv.Optional(CONF_START_DELAY, default="0s"): cv.positive_time_period_milliseconds,
+        cv.Optional(CONF_SAFE_MODE_ID): cv.use_id(cg.esphome_ns.namespace("safe_mode").class_("SafeModeComponent")),
     }
 ).extend(spi.spi_device_schema(True))
 
@@ -64,5 +70,9 @@ async def to_code(config: ConfigType) -> None:
     esp32.add_idf_sdkconfig_option("CONFIG_SPI_MASTER_ISR_IN_IRAM", True)
     esp32.add_idf_sdkconfig_option("CONFIG_SPI_MASTER_IN_IRAM", True)
     cg.add(var.set_rx_queue_len(config[CONF_RX_QUEUE_LEN]))
+    cg.add(var.set_start_delay(config[CONF_START_DELAY]))
+    if CONF_SAFE_MODE_ID in config:
+        cg.add_define("USE_MCP2515_IRQ_SAFE_MODE")
+        cg.add(var.set_safe_mode(await cg.get_variable(config[CONF_SAFE_MODE_ID])))
 
     await spi.register_spi_device(var, config)

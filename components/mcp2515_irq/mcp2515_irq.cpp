@@ -128,8 +128,11 @@ bool MCP2515::setup_internal() {
     return false;
   }
 
-  if (this->set_mode_(this->mcp_mode_) != canbus::ERROR_OK)
-    return false;
+  if (this->start_delay_ms_ == 0) {
+    if (this->set_mode_(this->mcp_mode_) != canbus::ERROR_OK)
+      return false;
+    this->started_ = true;
+  }
   uint8_t err_flags = this->get_error_flags_();
   ESP_LOGD(TAG, "mcp2515 setup done, error_flags = %02X", err_flags);
 
@@ -149,7 +152,24 @@ bool MCP2515::setup_internal() {
     // INT may already be low: frames that arrived before the edge interrupt was armed.
     xTaskNotifyGive(this->reader_task_handle_);
   }
+  if (!this->started_)
+    this->set_timeout(this->start_delay_ms_, [this]() { this->start_(); });
   return true;
+}
+
+void MCP2515::start_() {
+#ifdef USE_MCP2515_IRQ_SAFE_MODE
+  if (this->safe_mode_ != nullptr)
+    this->safe_mode_->mark_successful();
+#endif
+  global_preferences->sync();
+  if (this->spi_mutex_ != nullptr)
+    xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
+  const bool ok = this->set_mode_(this->mcp_mode_) == canbus::ERROR_OK;
+  this->started_ = ok;
+  if (this->spi_mutex_ != nullptr)
+    xSemaphoreGive(this->spi_mutex_);
+  ESP_LOGI(TAG, "reception started%s", ok ? "" : " FAILED");
 }
 
 bool MCP2515::set_listen_only(bool listen_only) {
@@ -161,7 +181,12 @@ bool MCP2515::set_listen_only(bool listen_only) {
     for (const auto &txb : TXB)
       this->modify_register_(txb.CTRL, TXB_TXREQ, 0);
   }
-  const bool ok = this->set_mode_(listen_only ? CANCTRL_REQOP_LISTENONLY : CANCTRL_REQOP_NORMAL) == canbus::ERROR_OK;
+  const CanctrlReqopMode mode = listen_only ? CANCTRL_REQOP_LISTENONLY : CANCTRL_REQOP_NORMAL;
+  bool ok = true;
+  if (this->started_)
+    ok = this->set_mode_(mode) == canbus::ERROR_OK;
+  else
+    this->mcp_mode_ = mode;  // applied by start_()
   if (this->spi_mutex_ != nullptr)
     xSemaphoreGive(this->spi_mutex_);
   ESP_LOGI(TAG, "%s mode%s", listen_only ? "listen-only" : "normal", ok ? "" : " FAILED");
@@ -519,6 +544,8 @@ canbus::Error MCP2515::send_message(struct canbus::CanFrame *frame) {
   if (frame->can_data_length_code > canbus::CAN_MAX_DATA_LENGTH) {
     return canbus::ERROR_FAILTX;
   }
+  if (!this->started_)
+    return canbus::ERROR_FAIL;
   if (this->spi_mutex_ != nullptr)
     xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
   TXBn tx_buffers[N_TXBUFFERS] = {TXB0, TXB1, TXB2};

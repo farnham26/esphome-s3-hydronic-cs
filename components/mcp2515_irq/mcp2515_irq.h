@@ -4,7 +4,11 @@
 #include "esphome/components/spi/spi.h"
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/preferences.h"
 #include "mcp2515_irq_defs.h"
+#ifdef USE_MCP2515_IRQ_SAFE_MODE
+#include "esphome/components/safe_mode/safe_mode.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -72,6 +76,13 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   void set_mcp_mode(const CanctrlReqopMode mode) { this->mcp_mode_ = mode; }
   void set_interrupt_pin(InternalGPIOPin *pin) { this->interrupt_pin_ = pin; }
   void set_rx_queue_len(uint16_t len) { this->rx_queue_len_ = len; }
+  /// Keeps the controller in config mode (no reception) for this long after setup.
+  void set_start_delay(uint32_t ms) { this->start_delay_ms_ = ms; }
+#ifdef USE_MCP2515_IRQ_SAFE_MODE
+  /// At the start: marks the boot successful and syncs preferences first, so these flash
+  /// writes (cache off, interrupts masked: the reader cannot run) fall before reception.
+  void set_safe_mode(safe_mode::SafeModeComponent *sm) { this->safe_mode_ = sm; }
+#endif
 
   /// Overflow events in the MCP2515 (both RX buffers full, >= 1 frame lost each): reader too slow.
   uint32_t rx_overflows() const { return this->rx_overflows_; }
@@ -109,6 +120,12 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
  protected:
   CanClock mcp_clock_{MCP_8MHZ};
   CanctrlReqopMode mcp_mode_ = CANCTRL_REQOP_NORMAL;
+  uint32_t start_delay_ms_{0};
+  bool started_{false};  // controller out of config mode; guarded by spi_mutex_ once the reader runs
+#ifdef USE_MCP2515_IRQ_SAFE_MODE
+  safe_mode::SafeModeComponent *safe_mode_{nullptr};
+#endif
+  void start_();
   bool setup_internal() override;
   canbus::Error set_mode_(CanctrlReqopMode mode);
 
