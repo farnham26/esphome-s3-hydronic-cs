@@ -22,9 +22,21 @@ static constexpr uint8_t QUIET_AFTER_CHANGES = 16;
 //   0x2C4 B1      bit 3: burner run-down (~65-90 s, into control pause or at switch-off)
 //   0x2C4 B4..B5  outlet coolant temperature, 0.1 degC, offset -50 degC
 //                 (holds ~75 degC in regulation, drops at once when the mixer opens)
+//   0x2C4 B2      fault code (Airtronic S3 RE, not yet seen on the Hydronic): 0x20 flame
+//                 loss, 0x40 overtemperature; set in state 0x0B and ~26 s after
 //   0x054 B0      controller -> heater: 0x01 heater requested on, 0x00 off
+//   0x065 B0..B1  controller -> heater: controller (EasyStart) room temperature, same
+//                 encoding as the outlet temperature (hypothesis: 18-19 degC, 1 K steps)
 static constexpr uint32_t ID_COMMAND = 0x054;
+static constexpr uint32_t ID_CONTROLLER_STATUS = 0x065;
 static constexpr uint32_t ID_STATUS = 0x2C4;
+static constexpr uint8_t STATE_FAULT = 0x0B;
+static constexpr uint8_t FAULT_FLAME_LOSS = 0x20;
+static constexpr uint8_t FAULT_OVERTEMP = 0x40;
+
+static float decode_temperature(const std::vector<uint8_t> &data, size_t offset) {
+  return ((data[offset] | data[offset + 1] << 8) - 500) * 0.1f;
+}
 
 const char *HydronicS3::state_name(int state) {
   switch (state) {
@@ -32,6 +44,8 @@ const char *HydronicS3::state_name(int state) {
       return "idle";
     case 0x05:
       return "active";
+    case STATE_FAULT:
+      return "fault";
     default:
       return nullptr;
   }
@@ -102,7 +116,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
 
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   if (can_id == ID_STATUS && data.size() >= 6) {
-    const float temp = ((data[4] | data[5] << 8) - 500) * 0.1f;
+    const float temp = decode_temperature(data, 4);
     if (temp != this->outlet_temp_c_) {
       this->outlet_temp_c_ = temp;
 #ifdef USE_SENSOR
@@ -124,6 +138,34 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
         snprintf(buf, sizeof(buf), "0x%02X", this->state_);
         this->state_text_->publish_state(name != nullptr ? name : buf);
       }
+#endif
+    }
+    if (data[2] != this->fault_code_) {
+      this->fault_code_ = data[2];
+      std::string text = "OK";
+      if (this->fault_code_ != 0) {
+        text = "";
+        if (this->fault_code_ & FAULT_FLAME_LOSS)
+          text += "flame loss ";
+        if (this->fault_code_ & FAULT_OVERTEMP)
+          text += "overtemperature ";
+        char code[8];
+        snprintf(code, sizeof(code), "0x%02X", this->fault_code_);
+        text += code;
+        ESP_LOGW(TAG, "fault code %s", text.c_str());
+      }
+#ifdef USE_TEXT_SENSOR
+      if (this->fault_text_ != nullptr)
+        this->fault_text_->publish_state(text);
+#endif
+    }
+  } else if (can_id == ID_CONTROLLER_STATUS && data.size() >= 2) {
+    const float temp = decode_temperature(data, 0);
+    if (temp != this->controller_temp_c_) {
+      this->controller_temp_c_ = temp;
+#ifdef USE_SENSOR
+      if (this->controller_temperature_ != nullptr)
+        this->controller_temperature_->publish_state(temp);
 #endif
     }
   } else if (can_id == ID_COMMAND && !data.empty() && data[0] != this->on_request_raw_) {

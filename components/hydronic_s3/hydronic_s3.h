@@ -41,9 +41,11 @@ class HydronicS3 : public Component {
 #ifdef USE_SENSOR
   void set_outlet_temperature_sensor(sensor::Sensor *s) { this->outlet_temperature_ = s; }
   void set_state_code_sensor(sensor::Sensor *s) { this->state_code_ = s; }
+  void set_controller_temperature_sensor(sensor::Sensor *s) { this->controller_temperature_ = s; }
 #endif
 #ifdef USE_TEXT_SENSOR
   void set_state_text_sensor(text_sensor::TextSensor *s) { this->state_text_ = s; }
+  void set_fault_text_sensor(text_sensor::TextSensor *s) { this->fault_text_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
@@ -53,6 +55,9 @@ class HydronicS3 : public Component {
   float outlet_temperature() const { return this->outlet_temp_c_; }
   int state() const { return this->state_; }
   int on_request() const { return this->on_request_raw_; }
+  float controller_temperature() const { return this->controller_temp_c_; }
+  /// 0x2C4 B2 while in fault or its ~26 s aftermath, 0 otherwise; -1 until received.
+  int fault_code() const { return this->fault_code_; }
   static const char *state_name(int state);
 
   void setup() override;
@@ -75,12 +80,16 @@ class HydronicS3 : public Component {
   float outlet_temp_c_{NAN};
   int state_{-1};
   int on_request_raw_{-1};
+  float controller_temp_c_{NAN};
+  int fault_code_{-1};
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
   sensor::Sensor *state_code_{nullptr};
+  sensor::Sensor *controller_temperature_{nullptr};
 #endif
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *state_text_{nullptr};
+  text_sensor::TextSensor *fault_text_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};
