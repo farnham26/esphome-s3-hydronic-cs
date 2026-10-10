@@ -65,15 +65,27 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
+## Session state (2026-10-10 22:20, live at the heater)
+- Fire on power bank, WiFi weak (RTT 125–230 ms → API **log lines get dropped**; entity updates are reliable).
+- Captures (in `work/`, gitignored): `run2.log` (API logs, auto-reconnect loop), `events.log` (web `/events`
+  SSE: Heater*/Outlet/Overflow/Diag entities, auto-reconnect). Earlier: `run1.log`, `stress*.log`.
+- **Poll DIDs switch ON**: sweeps FEFF + FD00..FD44 every 5 s (normal mode while on). Turn off when done.
+- Heater running via tempcontrol S+ relay (ON); tempcontrol PID climate OFF.
+- Diagnostic tools on device (HA/web): Read Fault Codes, Send UDS Request (+ "UDS Request" text), Scan DID Range
+  (+ from/to numbers), Scan Identification DIDs, Scan Local IDs, Poll DIDs; results → "Diag Response".
+- Readable DIDs (default session, no security): F18B F193 F195 F1F0–F1F5 FD00–FD44 (54) FEFF; raw in
+  `docs/research.md`. 0000–0FFF, F100–F17F negative (NRC 31); service 21 not supported (NRC 11).
+- Last RX overflow 22:14:20 during polling (reader wake 119 µs after ISR). Suspected floating GPIO36
+  pulse_meter → removed; watch whether overflows recur.
+-
+  Readable: factory-setting XMLs (coding names/values), seed/key DLL names, Java DTC job (uses 19 06, 19 10).
+
 ## Next steps
-1. Live check: 240 s RX overflow (seen before the DMA-safe SPI fix; the reader then malloc'd bounce buffers
-   per read, contending with DHCP renewal allocations — likely cause). Production build logs a frozen reader
-   timeline on any overflow (`can_diag`).
-2. S+ start holds: `2C4` B2 `0x40` 1.7 s after a switch-on request, no start (see research.md). Read the error
-   memory after a failed start (decoded passively → "Heater Fault Codes"). Minimize ignitions (soot), esp. cold.
-   tempcontrol S+ relay: `POST http://tempcontrol.wifi.home/switch/TempControl%20S3%20Heater%20relay%20(real)/turn_on|turn_off`
-   (needs `-d ''`); keep its PID climate OFF.
-3. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
+1. Correlate polled DIDs across phases (regulation, pause, restart, start hold vs. good start) → identify live
+   values (inlet temp, power, pump rate, flame, glow, voltage) and the start-hold cause. Keep commentary factual.
+2. Startup fault: S+ start hold = `2C4` B2 `0x40` 1.7 s after request; P000252 (water pump) active during hold.
+   Minimize ignitions (soot), esp. cold. React-to-hold logic for tempcontrol is a component feature candidate.
+3. RX overflows: confirm gone after pulse_meter removal; else analyse the frozen timeline.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
