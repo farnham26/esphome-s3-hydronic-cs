@@ -373,6 +373,14 @@ sensor:
       name: "Hours Altitude Mode"
       web_server:
         sorting_group_id: group_heater
+    fd08_raw:
+      name: "FD08 Raw"
+      web_server:
+        sorting_group_id: group_heater
+    fd35_raw:
+      name: "FD35 Raw"
+      web_server:
+        sorting_group_id: group_heater
   - platform: template
     name: "CAN Frame Rate"
     unit_of_measurement: "fps"

@@ -52,6 +52,8 @@ enum DidSensor : uint8_t {
   DID_HOURS_POWER_75_100,
   DID_HOURS_PAUSE,
   DID_HOURS_ALTITUDE,
+  DID_FD08_RAW,               // u16: ~23100 burn, ~24650 run-down, 20000 pause (water pump?)
+  DID_FD35_RAW,               // u16: 10000..10600, all phases
   DID_SENSOR_COUNT,
 };
 
@@ -105,7 +107,7 @@ class HydronicS3 : public Component {
   void stop_polling();
   /// The DIDs behind the DidSensor values and the flame flag.
   static std::vector<uint16_t> sensor_dids() {
-    return {0xFD01, 0xFD04, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17};
+    return {0xFD01, 0xFD04, 0xFD08, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17, 0xFD35};
   }
   /// Switches the bus controller between listen-only (true) and normal mode.
   void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }

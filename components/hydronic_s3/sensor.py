@@ -88,6 +88,8 @@ DID_SENSORS = {
     "hours_power_75_100": ("DID_HOURS_POWER_75_100", _HOURS),
     "hours_pause": ("DID_HOURS_PAUSE", _HOURS),
     "hours_altitude": ("DID_HOURS_ALTITUDE", _HOURS),
+    "fd08_raw": ("DID_FD08_RAW", dict(accuracy_decimals=0, entity_category=ENTITY_CATEGORY_DIAGNOSTIC)),
+    "fd35_raw": ("DID_FD35_RAW", dict(accuracy_decimals=0, entity_category=ENTITY_CATEGORY_DIAGNOSTIC)),
 }
 
 CONFIG_SCHEMA = cv.Schema(

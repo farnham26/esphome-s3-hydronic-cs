@@ -493,6 +493,14 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
       if (n >= 2)
         pub(DID_SUPPLY_VOLTAGE, u16(0) / 10.0f);
       break;
+    case 0xFD08:
+      if (n >= 2)
+        pub(DID_FD08_RAW, u16(0));
+      break;
+    case 0xFD35:
+      if (n >= 2)
+        pub(DID_FD35_RAW, u16(0));
+      break;
     case 0xFD09:
       if (n >= 2)
         pub(DID_BLOWER_SPEED, u16(0));
