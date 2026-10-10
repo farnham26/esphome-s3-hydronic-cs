@@ -118,3 +118,88 @@ IK1900301 (https://static.nhtsa.gov/odi/tsbs/2026/MC-11031193-0001.pdf):
   pump line (P000252 = "short circuit downstream of +Ub or transistor error").
 - In a hold the heater stays on the bus as long as S+ is on (> 3 min seen) and answers UDS: safe diagnostic
   window without ignition.
+
+## UDS DID scan (2026-10-10 22:0x, raw captures, default session, no security access)
+Range scans via the component's `Scan DID Range` (22 <DID> on 0x7A0, answer on 0x73C). All negative
+answers were NRC 0x31 (requestOutOfRange). Service 0x21 (local identifiers): NRC 0x11 for all 256.
+Scanned: 0000–0FFF (none), F100–F17F (none), F180–F19F (F18B F193 F195), F1A0–F1FF, FD00–FEFF.
+
+Positive answers (DID: data bytes, ASCII):
+```
+F1F0: 25 27 45 01 50 01 30 41 '%'E.P.0A'
+F1F1: 1D E3 E6 EC '....'
+F1F2: 00 05 01 00 00 01 '......'
+F1F3: 19 04 09 01 00 54 96 00 00 '.....T...'
+F1F4: 30 34 2E 30 32 2E 30 30 '04.02.00'
+F1F5: xx xx xx xx xx xx xx xx xx xx xx xx xx xx '<serial>'
+FD00: 00 00 '..'
+FD01: 30 3E 31 06 30 FC '0>1.0.'
+FD02: 00 '.'
+FD04: 01 04 '..'
+FD05: 00 '.'
+FD06: 1D 42 '.B'
+FD07: 00 '.'
+FD08: 4E 20 'N '
+FD09: 00 00 '..'
+FD0A: 00 00 '..'
+FD0B: 00 00 '..'
+FD0C: 00 '.'
+FD0D: 00 '.'
+FD0E: 00 00 '..'
+FD0F: 00 01 75 30 75 3F 7F FC 7F FC '..u0u?....'
+FD10: 01 28 00 01 F5 00 1B 59 '.(.....Y'
+FD11: 00 00 00 00 01 2F 0B B0 E9 1E '...../....'
+FD12: 0A '.'
+FD13: 07 D0 07 D0 09 C4 09 C4 01 40 01 40 00 CC 00 CC '.........@.@....'
+FD14: 0B B8 00 14 '....'
+FD15: 01 '.'
+FD16: 02 DA 64 14 '..d.'
+FD17: 00 01 A9 24 00 00 A7 0D 00 00 2F E9 00 00 0A B9 00 00 0F 4B 00 00 3F F4 00 00 59 3A '...$....../........K..?...Y:'
+FD18: 05 '.'
+FD19: ''
+FD1A: 0F 63 0D EF '.c..'
+FD1B: 00 00 05 11 00 13 '......'
+FD1C: 00 00 00 00 '....'
+FD1D: 01 '.'
+FD1E: 01 FE 0D 50 00 15 '...P..'
+FD1F: 03 E8 03 E8 '....'
+FD21: 27 10 ''.'
+FD22: 02 03 '..'
+FD23: ''
+FD24: 00 00 '..'
+FD25: 00 F0 '..'
+FD26: 00 F0 03 '...'
+FD27: 00 00 00 00 00 05 00 09 '........'
+FD29: 1E 14 '..'
+FD30: 01 '.'
+FD33: 02 46 64 47 5F 48 5A 49 50 4A 46 4B 3C 4C 00 '.FdG_HZIPJFK<L.'
+FD34: ''
+FD35: 27 D8 ''.'
+FD36: 26 D4 '&.'
+FD37: 01 00 00 00 '....'
+FD38: 01 '.'
+FD39: 00 '.'
+FD3A: 00 '.'
+FD3D: 00 00 00 00 '....'
+FD3E: 01 '.'
+FD3F: 25 '%'
+FD41: ''
+FD44: 23 32 '#2'
+FEFF: 00 00 00 00 00 00 00 49 30 C0 30 CA 2F A8 FF FF 00 08 00 00 00 4C 00 00 00 00 00 00 65 F8 00 00 27 C4 64 BC 00 00 '.......I0.0./........L......e...'.d...'
+```
+
+Repeated `22 FE FF` reads with the CAN outlet temperature (0x2C4 B4–B5) last published before each read:
+```
+22:05:53.191  outlet(CAN) 75.0 °C  FEFF: 00 00 00 00 00 00 00 49 30 C0 30 CA 2F A8 FF FF 00 08 00 00 00 4C 00 00 00 00 00 00 65 F8 00 00 27 C4 64 BC 00 00 '.......I0.0./........L......e...'.d...'
+22:08:26.587  outlet(CAN) 70.5 °C  FEFF: 00 00 00 00 00 00 00 30 2F 12 2F 12 2D F0 FF FF 00 08 00 00 00 4E 00 00 60 E0 02 6C 62 75 00 00 27 A6 64 1C 00 00 '.......0/./.-........N..`..lbu..'.d...'
+22:08:33.751  outlet(CAN) 70.4 °C  FEFF: 00 00 00 00 00 00 00 30 2E FE 2E FE 2D BE FF FF 00 08 00 00 00 4D 00 00 60 E0 02 62 65 BF 00 00 27 BA 63 FC 00 00 '.......0....-........M..`..be...'.c...'
+22:08:40.824  outlet(CAN) 70.2 °C  FEFF: 00 00 00 00 00 00 00 30 2E F4 2E EA 2D 8C FF FF 00 08 00 00 00 50 00 00 60 E0 02 62 62 6D 00 00 29 CC 62 9C 00 00 '.......0....-........P..`..bbm..).b...'
+22:08:47.896  outlet(CAN) 70.2 °C  FEFF: 00 00 00 00 00 00 00 30 2E E0 2E F4 2E 54 FF FF 00 08 00 35 00 4B 00 00 61 44 02 62 62 5D 00 00 29 72 62 BC 00 00 '.......0.....T.....5.K..aD.bb]..)rb...'
+22:08:54.869  outlet(CAN) 70.2 °C  FEFF: 00 00 00 00 00 00 00 30 2E D6 2F 08 2F A8 FF FF 00 08 00 28 00 45 00 00 60 E0 02 58 62 95 00 00 29 0E 62 BC 00 00 '.......0.././......(.E..`..Xb...).b...'
+22:09:02.022  outlet(CAN) 71.2 °C  FEFF: 00 00 00 00 00 00 00 30 2E C2 2F 6C 33 86 FF FF 00 08 00 23 00 4E 00 00 60 E0 02 58 62 6D 00 00 29 0E 63 7C 00 00 '.......0../l3......#.N..`..Xbm..).c|..'
+```
+
+DTC extended data (19 06 00 02 52 FF, 22:00:49):
+```
+59 06 00 02 52 2E 01 69 00 01 A9 03 1D 3C 00 15 00 00 59 3A 26 D4 01 06 00 00 00 00 00 00 00 00 23 78 23 82 22 9C 06 DF 05
+```
