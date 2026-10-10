@@ -1,0 +1,89 @@
+# M5Stack Fire v2.7 (ESP32, 16 MB flash, 8 MB PSRAM on GPIO16/17, IP5306 at 0x75).
+# Pin map per https://docs.m5stack.com/en/core/fire_v2.7
+# LCD DC is GPIO27, SPI MISO GPIO19: the bus is free for COMMU's MCP2515.
+
+esphome:
+  on_boot:
+    - priority: 800
+      then:
+        - output.turn_on: sd_cs
+
+esp32:
+  board: m5stack-fire
+  flash_size: 16MB
+  flash_frequency: 80MHZ    # XIP speed, as in the emobotics m5stack-core BSP (40 MHz is the fallback)
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+
+psram:
+  mode: quad
+  speed: 40MHz              # 80 MHz PSRAM fails its memory test on this Fire with 80 MHz flash
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO21
+    scl: GPIO22
+
+# Shared by LCD (CS 14), SD card (CS 4) and M-Bus (COMMU CAN CS 12).
+spi:
+  - id: lcd_bus
+    # 18/23/19 are VSPI's native pins: SPI3 routes them through IOMUX. On SPI2
+    # they go through the GPIO matrix (~25 ns input delay), which with the
+    # MCP2515's 45 ns output-valid time breaks full-duplex reads at 8 MHz.
+    interface: spi3
+    clk_pin: GPIO18
+    mosi_pin: GPIO23
+    miso_pin: GPIO19
+
+output:
+  # SD card CS: held high so an inserted card never drives the shared MISO.
+  - platform: gpio
+    pin: GPIO4
+    id: sd_cs
+  - platform: ledc
+    pin: GPIO32
+    id: lcd_backlight_output
+
+light:
+  - platform: monochromatic
+    id: lcd_backlight
+    name: "Backlight"
+    output: lcd_backlight_output
+    web_server:
+      sorting_group_id: group_board
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+display:
+  - platform: mipi_spi
+    id: lcd
+    model: M5CORE
+    spi_id: lcd_bus
+    data_rate: 40MHz        # proven on this board (emobotics m5stack-core BSP); model default is 10 MHz
+    invert_colors: true
+
+binary_sensor:
+  - platform: gpio
+    id: button_a
+    pin:
+      number: GPIO39
+      inverted: true
+    internal: true
+  - platform: gpio
+    id: button_b
+    pin:
+      number: GPIO38
+      inverted: true
+    internal: true
+  - platform: gpio
+    id: button_c
+    pin:
+      number: GPIO37
+      inverted: true
+    internal: true
+  - platform: status
+    id: device_status
+    name: "Status"
+    web_server:
+      sorting_group_id: group_board

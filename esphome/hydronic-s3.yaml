@@ -1,0 +1,289 @@
+# Eberspächer Hydronic S3 on CAN: hydronic_s3 component, heater data on the
+# display and as HA sensors. Listen-only until the protocol is decoded; the
+# component logs new IDs, changing bytes and a periodic ID table.
+# Hardware: M5Stack Fire v2.7 + COMMU module (MCP2515 via SPI, 8 MHz crystal).
+substitutions:
+  name: hydronic-s3
+  can_cs: GPIO12            # COMMU CAN CS on Fire/Basic (M5Stack COMMU examples)
+  can_int: GPIO15           # COMMU CAN INT
+  can_mode: LISTENONLY      # no ACK, no TX: invisible on the bus
+  onewire_pin: GPIO26       # M5GO base Port B
+  pump_pin: GPIO36          # M5GO base Port B, input-only, no internal pull-up: opto needs external pull-up
+
+esphome:
+  name: ${name}
+  friendly_name: Hydronic S3
+
+packages:
+  board: !include boards/m5stack-fire.yaml
+
+external_components:
+  # Relative to this config. mcp2515_irq and mipi_spi are patched forks of the
+  # ESPHome core components, see their headers.
+  - source:
+      type: local
+      path: ../components
+    components: [hydronic_s3, mcp2515_irq, mipi_spi]
+
+logger:
+  # DEBUG for hydronic_s3's per-byte change log; per-tag levels may only be
+  # quieter than the global one.
+  level: DEBUG
+  logs:
+    canbus: INFO            # logs every frame at DEBUG
+    i2c.idf: ERROR
+    spi_device: ERROR
+    display.mipi_spi: WARN
+    component: WARN
+    sensor: WARN
+    text_sensor: WARN
+    binary_sensor: WARN
+    light: WARN
+    ledc.output: WARN
+    lvgl: INFO
+    dallas.temp.sensor: INFO
+    pulse_meter: INFO
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+  - platform: web_server
+
+web_server:
+  port: 80
+  version: 3
+  local: true
+  sorting_groups:
+    - id: group_heater
+      name: "Heater"
+      sorting_weight: 10
+    - id: group_can
+      name: "CAN bus"
+      sorting_weight: 15
+    - id: group_board
+      name: "M5 Fire"
+      sorting_weight: 20
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+
+captive_portal:
+
+canbus:
+  - platform: mcp2515_irq
+    id: heater_can
+    spi_id: lcd_bus
+    cs_pin:
+      number: ${can_cs}
+      ignore_strapping_warning: true   # GPIO12 (MTDI); boots fine with COMMU attached
+    interrupt_pin:
+      number: ${can_int}
+      ignore_strapping_warning: true   # GPIO15 (MTDO); INT idles high, as the boot default
+    rx_queue_len: 256
+    can_id: 0
+    clock: 8MHZ
+    bit_rate: 500kbps
+    mode: ${can_mode}
+
+hydronic_s3:
+  id: heater
+  canbus_id: heater_can
+
+# --- reference sensors, to check decoded values against ---
+one_wire:
+  - platform: gpio
+    pin: ${onewire_pin}
+
+binary_sensor:
+  - id: !extend button_a
+    on_press:
+      - lvgl.page.previous:
+  - id: !extend button_c
+    on_press:
+      - lvgl.page.next:
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_title
+    size: 22
+  - file: "gfonts://Roboto"
+    id: font_body
+    size: 18
+  - file: "gfonts://Roboto Mono"
+    id: font_mono
+    size: 14
+
+# LVGL redraws only invalidated areas; mipi_spi (patched) splits each flush into
+# short bus holds so the MCP2515 reader is never locked out.
+lvgl:
+  displays: [lcd]
+  buffer_size: 12.5%
+  style_definitions:
+    - id: style_dim
+      text_color: 0xA0A0A0
+      text_font: font_body
+  theme:
+    label:
+      text_color: 0xFFFFFF
+      text_font: font_body
+  pages:
+    - id: page_heater
+      bg_color: 0x000000
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 320
+            height: 30
+            bg_color: 0x421A00
+            border_width: 0
+            radius: 0
+            widgets:
+              - label:
+                  align: LEFT_MID
+                  text: "Hydronic S3"
+                  text_font: font_title
+                  text_color: 0xFF9030
+        - label:
+            id: lbl_heater
+            x: 10
+            y: 40
+            text: "Outlet  --\nInlet   --\nPower   --\nState   --"
+        - label:
+            id: lbl_refs
+            x: 10
+            y: 190
+            styles: style_dim
+            text: ""
+    - id: page_bus
+      bg_color: 0x000000
+      widgets:
+        - label:
+            id: lbl_bus
+            x: 6
+            y: 4
+            text: ""
+        - label:
+            id: lbl_ids
+            x: 2
+            y: 30
+            text_font: font_mono
+            text: ""
+
+interval:
+  # Labels are set only when their text changes, so LVGL invalidates nothing else.
+  - interval: 1s
+    then:
+      - lambda: |-
+          auto set = [](lv_obj_t *lbl, const char *txt) {
+            if (strcmp(lv_label_get_text(lbl), txt) != 0)
+              lv_label_set_text(lbl, txt);
+          };
+          char buf[512];
+          snprintf(buf, sizeof(buf), "Flow %.1f  Ret %.1f  Pump %.2f Hz\n%s",
+                   id(coolant_flow).state, id(coolant_return).state, id(pump_rate).state,
+                   id(wifi_ip).state.empty() ? "no wifi" : id(wifi_ip).state.c_str());
+          set(id(lbl_refs), buf);
+
+          auto *can = id(heater_can);
+          snprintf(buf, sizeof(buf), "%u fr  %u IDs  ovf %u  drop %u  q %u",
+                   (unsigned) id(heater).frames(), (unsigned) id(heater).ids().size(),
+                   (unsigned) can->rx_overflows(), (unsigned) can->queue_drops(),
+                   (unsigned) can->queue_high_water());
+          set(id(lbl_bus), buf);
+
+          const uint32_t now = millis();
+          int n = 0, rows = 0;
+          for (auto &kv : id(heater).ids()) {
+            if (rows++ == 12 || n > (int) sizeof(buf) - 48) break;
+            const auto &e = kv.second;
+            char hex[17];
+            for (int b = 0; b < e.len; b++) snprintf(hex + 2 * b, 3, "%02X", e.data[b]);
+            hex[2 * e.len] = 0;
+            n += snprintf(buf + n, sizeof(buf) - n, e.ext ? "%08X %-16s %5.0f%s\n" : "     %03X %-16s %5.0f%s\n",
+                          (unsigned) (kv.first & 0x1FFFFFFF), hex, e.period_ms,
+                          now - e.last_ms >= 2000 ? " -" : "");
+          }
+          buf[n] = 0;
+          set(id(lbl_ids), n ? buf : "No frames yet");
+
+sensor:
+  - platform: template
+    name: "CAN Frame Rate"
+    unit_of_measurement: "fps"
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      static uint32_t last_frames = 0, last_ms = 0;
+      const uint32_t now = millis(), frames = id(heater).frames();
+      const float fps = last_ms ? (frames - last_frames) * 1000.0f / (now - last_ms) : NAN;
+      last_frames = frames;
+      last_ms = now;
+      return fps;
+    web_server:
+      sorting_group_id: group_can
+  - platform: template
+    name: "CAN RX Overflows"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: "return id(heater_can)->rx_overflows();"
+    web_server:
+      sorting_group_id: group_can
+  - platform: template
+    name: "CAN Queue Drops"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: "return id(heater_can)->queue_drops();"
+    web_server:
+      sorting_group_id: group_can
+  - platform: template
+    name: "CAN Queue High Water"
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: "return id(heater_can)->queue_high_water();"
+    web_server:
+      sorting_group_id: group_can
+  - platform: dallas_temp
+    id: coolant_flow
+    name: "Coolant flow (ref)"
+    address: 0x0000000000000000   # set after first boot (addresses are logged)
+    update_interval: 5s
+    web_server:
+      sorting_group_id: group_heater
+  - platform: dallas_temp
+    id: coolant_return
+    name: "Coolant return (ref)"
+    address: 0x0000000000000001
+    update_interval: 5s
+    web_server:
+      sorting_group_id: group_heater
+  - platform: pulse_meter
+    id: pump_rate
+    name: "Metering pump rate (ref)"
+    pin:
+      number: ${pump_pin}
+      mode: INPUT
+    internal_filter: 5ms
+    timeout: 5s
+    unit_of_measurement: "Hz"
+    filters:
+      - multiply: 0.016667        # pulses/min -> Hz
+    web_server:
+      sorting_group_id: group_heater
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip
+      name: "IP Address"
+      web_server:
+        sorting_group_id: group_board

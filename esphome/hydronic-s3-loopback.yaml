@@ -1,0 +1,83 @@
+# Stress test without a bus: MCP2515 in loopback, the main loop queues 3 frames
+# back-to-back (all TX buffers) as fast as it runs, while LVGL redraws the full
+# screen every 200 ms. Pass: lost, reord, corrupt, ovf, drop all 0. No SD card inserted.
+substitutions:
+  can_mode: LOOPBACK
+
+packages:
+  main: !include hydronic-s3.yaml
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: "App.set_loop_interval(0);"   # run the sender as often as possible
+
+globals:
+  - id: tx_seq
+    type: uint32_t
+    initial_value: "0"
+  - id: tx_busy
+    type: uint32_t
+    initial_value: "0"
+  - id: rx_expected
+    type: uint32_t
+    initial_value: "0"
+  - id: rx_count
+    type: uint32_t
+    initial_value: "0"
+  - id: rx_lost
+    type: uint32_t
+    initial_value: "0"
+  - id: rx_reordered
+    type: uint32_t
+    initial_value: "0"
+  - id: rx_corrupt
+    type: uint32_t
+    initial_value: "0"
+
+canbus:
+  - id: !extend heater_can
+    on_frame:
+      - can_id: 0x123
+        then:
+          - lambda: |-
+              id(rx_count)++;
+              static const uint8_t TAIL[4] = {0xA5, 0x5A, 0xC3, 0x3C};
+              if (x.size() != 8 || memcmp(x.data() + 4, TAIL, 4) != 0) {
+                if (id(rx_corrupt)++ < 5)
+                  ESP_LOGW("stress", "corrupt [%u] %s", (unsigned) x.size(), format_hex_pretty(x).c_str());
+                return;
+              }
+              const uint32_t seq = x[0] | x[1] << 8 | x[2] << 16 | (uint32_t) x[3] << 24;
+              if (seq < id(rx_expected)) {
+                id(rx_reordered)++;
+                return;
+              }
+              id(rx_lost) += seq - id(rx_expected);
+              id(rx_expected) = seq + 1;
+
+interval:
+  - interval: 1ms
+    then:
+      - lambda: |-
+          for (int i = 0; i < 3; i++) {
+            const uint32_t seq = id(tx_seq);
+            std::vector<uint8_t> d{(uint8_t) seq, (uint8_t) (seq >> 8), (uint8_t) (seq >> 16), (uint8_t) (seq >> 24),
+                                   0xA5, 0x5A, 0xC3, 0x3C};
+            if (id(heater_can)->send_data(0x123, false, false, d) == canbus::ERROR_OK)
+              id(tx_seq)++;
+            else
+              id(tx_busy)++;
+          }
+  - interval: 200ms
+    then:
+      - lambda: "lv_obj_invalidate(lv_scr_act());"
+  - interval: 5s
+    then:
+      - lambda: |-
+          auto *can = id(heater_can);
+          ESP_LOGI("stress", "sent %u busy %u recv %u lost %u reord %u corrupt %u | ovf %u drop %u qmax %u",
+                   (unsigned) id(tx_seq), (unsigned) id(tx_busy), (unsigned) id(rx_count), (unsigned) id(rx_lost), (unsigned) id(rx_reordered), (unsigned) id(rx_corrupt),
+                   (unsigned) can->rx_overflows(), (unsigned) can->queue_drops(),
+                   (unsigned) can->queue_high_water());
