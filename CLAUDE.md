@@ -30,7 +30,9 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
     on MOSI/MISO → ~10% corrupted MCP2515 bytes. GPIO4 (SD CS) is driven high regardless.
   - SPI bus on **SPI3 (IOMUX)**: on SPI2 the GPIO matrix delay + MCP2515 tV (45 ns) corrupts reads at 8 MHz
     (deterministic, 1-bits lost). IOMUX: clean up to 10 MHz. MCP2515 runs 8 MHz.
-  - PSRAM 40 MHz (80 MHz fails its memory test with 80 MHz flash).
+  - PSRAM unused: ESP32 SPI DMA can't read PSRAM (bounce copies), and it shares the flash cache.
+  - SPI DMA on ESP32: buffers 4-byte aligned, RX lengths multiples of 4 (else IDF mallocs per transaction /
+    DMA may overrun). `mcp2515_irq` does all transfers on one aligned buffer (see BSP `mem.rs`, `spi2.rs`).
   - LCD SPI 40 MHz, flash XIP 80 MHz, upload 921600 — as in the emobotics m5stack-core BSP
     (Fire27 display/SD/LVGL experience, bus sharing).
   - Rejected: CoreS3 (LCD DC = SPI MISO = GPIO35); Basic unit on hand (dead backlight).
@@ -61,15 +63,13 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
 ## Next steps
-1. RX overflow every exactly 240 s from boot, **live only** (not on the loopback bench; DHCP T1 renewal of an
-   8-min lease suspected). The production build freezes the reader timeline at an overflow and logs it in
-   `can_diag` — capture one live, then fix.
-2. Per-frame read max 200–700 µs although SPI costs ~61 µs (bench: CANINTF 16.5 µs, RX buffer 28.2 µs):
-   interruptions, likely flash/PSRAM cache misses → IRAM hot path, or native TWAI (Unit CAN on Port B G26/G36).
-3. TX: in loopback the MCP2515 transmits a frame twice right after boot (no TXERR/MLOA/ABTF; RX path
-   verified clean). Resolve before any real TX (UDS requests).
-4. S+ status bit: repeat test with EasyStart fully off.
-5. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
+1. Live check: 240 s RX overflow (seen before the DMA-safe SPI fix; the reader then malloc'd bounce buffers
+   per read, contending with DHCP renewal allocations — likely cause). Production build logs a frozen reader
+   timeline on any overflow (`can_diag`).
+2. Per-frame read max ~200 µs vs ~45 µs SPI cost: flash-cache misses on the reader path (ESPHome SPI delegate,
+   IDF spi_master, GPIO in flash). Option: own IDF device + IRAM hot path, or native TWAI (Unit CAN, Port B).
+3. S+ status bit: repeat test with EasyStart fully off.
+4. Power, pump rate, inlet temp, flame, glow plug: UDS `22` on `0x7A0`/`0x73C` (TX, safety review first).
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
