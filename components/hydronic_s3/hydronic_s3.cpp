@@ -66,6 +66,24 @@ const char *HydronicS3::state_name(int state) {
   }
 }
 
+const char *HydronicS3::phase_name(int phase) {
+  switch (phase) {
+    case 0x00:
+      return "Off";
+    case 0x0C:
+      return "Start";
+    case 0x14:
+      return "Burn";
+    case 0x1E:
+    case 0x1F:
+      return "Run-down";
+    case 0x28:
+      return "Pause";
+    default:
+      return nullptr;
+  }
+}
+
 static void hex(char *out, const uint8_t *d, uint8_t len) {
   static const char HX[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < len; i++) {

@@ -104,6 +104,8 @@ class HydronicS3 : public Component {
   /// 0x2C4 B2 while in fault or its ~26 s aftermath, 0 otherwise; -1 until received.
   int fault_code() const { return this->fault_code_; }
   static const char *state_name(int state);
+  /// FD10 B1 operating phase; nullptr if unknown.
+  static const char *phase_name(int phase);
   /// Sends UDS ReadDTCInformation (19 02 <mask>) as the EasyStart's error-memory
   /// readout does. The bus controller must be out of listen-only mode.
   void request_fault_codes(uint8_t status_mask);

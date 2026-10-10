@@ -64,6 +64,15 @@ web_server:
     - id: group_heater
       name: "Heater"
       sorting_weight: 10
+    - id: group_components
+      name: "Components"
+      sorting_weight: 11
+    - id: group_counters
+      name: "Counters & identification"
+      sorting_weight: 12
+    - id: group_debug
+      name: "Debug tools"
+      sorting_weight: 30
     - id: group_can
       name: "CAN bus"
       sorting_weight: 15
@@ -117,6 +126,7 @@ binary_sensor:
       web_server:
         sorting_group_id: group_heater
     flame:
+      id: b_flame
       name: "Flame"
       web_server:
         sorting_group_id: group_heater
@@ -135,7 +145,7 @@ font:
     id: font_body
     size: 18
     glyphsets: [GF_Latin_Kernel]
-    glyphs: ["°"]
+    glyphs: ["°", "Δ"]
   - file: "gfonts://Roboto"
     id: font_big
     size: 48
@@ -190,11 +200,11 @@ lvgl:
             id: lbl_heater
             x: 10
             y: 100
-            text: "Outlet temperature\nState  --\nRequest  --"
+            text: ""
         - label:
             id: lbl_refs
             x: 10
-            y: 190
+            y: 216
             styles: style_dim
             text: ""
     - id: page_bus
@@ -231,10 +241,31 @@ interval:
           char code[8];
           snprintf(code, sizeof(code), st < 0 ? "--" : "0x%02X", st);
           const int fc = id(heater).fault_code();
-          const float ct = id(heater).controller_temperature();
-          snprintf(buf, sizeof(buf), "Outlet temperature\nState  %s   Request  %s\nFault  %s\nEasyStart  %.1f °C",
+          // DID values: NAN until the first poll answer.
+          auto num = [](char *out, size_t len, float v, const char *fmt) {
+            if (std::isnan(v)) snprintf(out, len, "--");
+            else snprintf(out, len, fmt, v);
+          };
+          char inl[12], dt[12], pw[12], fu[12], gl[12], bl[12], v[12];
+          const float ti = id(s_inlet).state;
+          num(inl, sizeof(inl), ti, "%.1f");
+          num(dt, sizeof(dt), t - ti, "%.1f");
+          num(pw, sizeof(pw), id(s_power).state, "%.0f");
+          num(fu, sizeof(fu), id(s_fuel).state, "%.2f");
+          num(gl, sizeof(gl), id(s_glow).state, "%.0f");
+          num(bl, sizeof(bl), id(s_blower).state, "%.0f");
+          num(v, sizeof(v), id(s_voltage).state, "%.1f");
+          const float ph = id(s_phase).state;
+          const char *phase = std::isnan(ph) ? nullptr : hydronic_s3::HydronicS3::phase_name((int) ph);
+          char phase_code[8];
+          snprintf(phase_code, sizeof(phase_code), std::isnan(ph) ? "--" : "0x%02X", std::isnan(ph) ? 0 : (int) ph);
+          snprintf(buf, sizeof(buf),
+                   "Inlet  %s °C   ΔT %s K\n%s  %s W  %s l/h\nFlame %s   Glow %s W\nBlower %s rpm   %s V\n"
+                   "State %s  Req %s  Fault %s",
+                   inl, dt, phase != nullptr ? phase : phase_code, pw, fu,
+                   !id(b_flame).has_state() ? "--" : id(b_flame).state ? "on" : "off", gl, bl, v,
                    name != nullptr ? name : code, rq < 0 ? "--" : rq == 1 ? "on" : "off",
-                   fc < 0 ? "--" : fc == 0 ? "none" : "flags set", ct);
+                   fc < 0 ? "--" : fc == 0 ? "none" : "set");
           set(id(lbl_heater), buf);
 
           snprintf(buf, sizeof(buf), "Bat %.0f%%%s   %s",
@@ -303,92 +334,99 @@ sensor:
     controller_temperature:
       name: "EasyStart Temperature"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     state_code:
       name: "Heater State Code"
       entity_category: diagnostic
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     inlet_temperature:
+      id: s_inlet
       name: "Inlet Temperature"
       web_server:
         sorting_group_id: group_heater
     flame_sensor_temperature:
       name: "Flame Sensor Temperature"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     supply_voltage:
+      id: s_voltage
       name: "Supply Voltage"
       web_server:
         sorting_group_id: group_heater
     blower_speed:
+      id: s_blower
       name: "Blower Speed"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     glow_plug_power:
+      id: s_glow
       name: "Glow Plug Power"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     glow_plug_raw:
       name: "Glow Plug Raw"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     metering_pump_rate:
       name: "Metering Pump Rate"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_components
     operating_phase:
+      id: s_phase
       name: "Operating Phase"
       web_server:
         sorting_group_id: group_heater
     fuel_consumption:
+      id: s_fuel
       name: "Fuel Consumption"
       web_server:
         sorting_group_id: group_heater
     heating_power:
+      id: s_power
       name: "Heating Power"
       web_server:
         sorting_group_id: group_heater
     fuel_total:
       name: "Fuel Total"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_total:
       name: "Operating Hours"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_power_0_25:
       name: "Hours Power 0-25%"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_power_25_50:
       name: "Hours Power 25-50%"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_power_50_75:
       name: "Hours Power 50-75%"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_power_75_100:
       name: "Hours Power 75-100%"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_pause:
       name: "Hours Control Pause"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     hours_altitude:
       name: "Hours Altitude Mode"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_counters
     fd08_raw:
       name: "FD08 Raw"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_debug
     fd35_raw:
       name: "FD35 Raw"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_debug
   - platform: template
     name: "CAN Frame Rate"
     unit_of_measurement: "fps"
@@ -436,7 +474,7 @@ switch:
     optimistic: true
     restore_mode: ALWAYS_OFF  # turned on in on_boot, after the listen-only hook
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
     turn_on_action:
       - lambda: |-
           id(heater).start_polling(esphome::hydronic_s3::HydronicS3::sensor_dids(), 5000);
@@ -449,7 +487,7 @@ switch:
     optimistic: true
     restore_mode: ALWAYS_OFF
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
     turn_on_action:
       - switch.turn_off: poll_dids
       - lambda: |-
@@ -469,7 +507,7 @@ text:
     optimistic: true
     initial_value: "19 02 08"
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
 
 number:
   # DID scan range (decimal in the UI, 0..65535).
@@ -484,7 +522,7 @@ number:
     optimistic: true
     initial_value: 0
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
   - platform: template
     id: did_to
     name: "DID Scan To"
@@ -496,32 +534,32 @@ number:
     optimistic: true
     initial_value: 4095
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
 
 button:
   - platform: template
     name: "Send UDS Request"
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
     on_press:
       - lambda: "id(heater).send_uds_request(id(uds_request).state);"
   - platform: template
     name: "Scan Local IDs"
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
     on_press:
       - lambda: "id(heater).scan_local_ids(0x00, 0xFF);"
   - platform: template
     name: "Scan DID Range"
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
     on_press:
       - lambda: "id(heater).scan_dids((uint16_t) id(did_from).state, (uint16_t) id(did_to).state);"
   # UDS identification DIDs (read-only); results in "Diag Response".
   - platform: template
     name: "Scan Identification DIDs"
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_debug
     on_press:
       - lambda: "id(heater).scan_dids(0xF180, 0xF19F);"
   # Error-memory readout like the EasyStart's: the only time this node transmits.
@@ -541,12 +579,20 @@ text_sensor:
   - platform: hydronic_s3
     hardware_version:
       name: "Heater Hardware Version"
+      web_server:
+        sorting_group_id: group_counters
     software_version:
       name: "Heater Software Version"
+      web_server:
+        sorting_group_id: group_counters
     part_number:
       name: "Heater Part Number"
+      web_server:
+        sorting_group_id: group_counters
     serial_number:
       name: "Heater Serial Number"
+      web_server:
+        sorting_group_id: group_counters
     state:
       name: "Heater State"
       web_server:
@@ -562,11 +608,11 @@ text_sensor:
     diag_response:
       name: "Diag Response"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_debug
     event:
       name: "Heater Event"
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_debug
   - platform: wifi_info
     ip_address:
       id: wifi_ip
