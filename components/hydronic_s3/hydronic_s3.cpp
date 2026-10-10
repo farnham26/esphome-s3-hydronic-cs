@@ -522,8 +522,16 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         pub(DID_OPERATING_PHASE, d[1]);
       break;
     case 0xFD11:
-      if (n >= 2)
-        pub(DID_POWER_LEVEL_RAW, d[1]);
+      if (n >= 2) {
+        const float l_h = d[1] * 3600.0f / 1e6f;
+        pub(DID_FUEL_CONSUMPTION, l_h);
+        pub(DID_HEATING_POWER, l_h * HEAT_FLOW_W_PER_L_H);
+      }
+      if (n >= 10) {
+        const uint32_t litres = static_cast<uint32_t>(u16(2)) << 16 | u16(4);
+        const uint32_t nl = static_cast<uint32_t>(u16(6)) << 16 | u16(8);
+        pub(DID_FUEL_TOTAL, litres + nl / 1e9f);
+      }
       break;
     case 0xFD17:
       for (size_t i = 0; i < 7 && i * 4 + 4 <= n; i++) {

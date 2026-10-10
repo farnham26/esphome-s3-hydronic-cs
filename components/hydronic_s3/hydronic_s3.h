@@ -44,7 +44,9 @@ enum DidSensor : uint8_t {
   DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (?)
   DID_METERING_PUMP_RATE,     // FD0D 0.1 Hz (?)
   DID_OPERATING_PHASE,        // FD10 B1: 0x0C start, 0x14 burn, 0x1F run-down, 0x28 pause
-  DID_POWER_LEVEL_RAW,        // FD11 B1, proportional to FD0D (?)
+  DID_FUEL_CONSUMPTION,       // FD11 B1 µl/s (= 29.3 µl/stroke x FD0D; 41 at the 0.15 l/h minimum load)
+  DID_HEATING_POWER,          // FD11 B1 x D6L datasheet heat flow per fuel (estimate)
+  DID_FUEL_TOTAL,             // FD11 B2-5 litres + B6-9 nl (rollover at 1e9 assumed)
   DID_HOURS_TOTAL,            // FD17 counters, minutes: total, power bands, pause, altitude
   DID_HOURS_POWER_0_25,
   DID_HOURS_POWER_25_50,
@@ -56,6 +58,9 @@ enum DidSensor : uint8_t {
   DID_FD35_RAW,               // u16: 10000..10600, all phases
   DID_SENSOR_COUNT,
 };
+
+/// D6L datasheet: 5600 W at 0.65 l/h, 1300 W at 0.15 l/h (linear within 1 %).
+static constexpr float HEAT_FLOW_W_PER_L_H = 5600.0f / 0.65f;
 
 /// Eberspächer Hydronic S3 on CAN (EasyStart protocol, 11-bit, 500 kbit/s).
 /// Listen-only: decodes what is known, and logs new IDs and changing bytes so

@@ -290,3 +290,11 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
 22:30:20 78 475E30B63200 0104 5A26 07C8 0000 00 0E 01037531753F81FD8194 01140001F5001B59 00290000012F0D17FA04
 ```
 
+### Fuel: FD11 decoded (22:19–22:52, 4 burn periods)
+- B6–9 counter rate / FD0D Hz = 29280 ±0.5 % at 1.4 and 2.4 Hz → stroke-proportional. B1 = 29.3 × Hz (41 @ 1.4, 70 @ 2.4).
+- Units: B1 µl/s, B6–9 nl → B1 41 = 0.148 l/h at the regulated minimum; D6L manual minimum load: 1300 W / 0.15 l/h (C).
+- **Metering pump stroke ≈ 29.3 µl.** Max 5600 W / 0.65 l/h → ~6.2 Hz (activation range 0.1–10 Hz).
+- B2–5 = 303 = total fuel litres; B6–9 the nl fraction (rollover at 1e9 assumed).
+- Heating power sensor = fuel × 8615 W per l/h (D6L datasheet 5600 W/0.65 l/h, 1300 W/0.15 l/h; datasheet heat
+  flow, not measured). Web: no published pump frequency/stroke volume; manual: technical description Hydronic S3
+  Commercial 25.2696.90.0001 (butlertechnik.com copy).

@@ -341,8 +341,16 @@ sensor:
       name: "Operating Phase"
       web_server:
         sorting_group_id: group_heater
-    power_level_raw:
-      name: "Power Level Raw"
+    fuel_consumption:
+      name: "Fuel Consumption"
+      web_server:
+        sorting_group_id: group_heater
+    heating_power:
+      name: "Heating Power"
+      web_server:
+        sorting_group_id: group_heater
+    fuel_total:
+      name: "Fuel Total"
       web_server:
         sorting_group_id: group_heater
     hours_total:

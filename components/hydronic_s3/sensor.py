@@ -6,6 +6,8 @@ from esphome.const import (
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
+    DEVICE_CLASS_VOLUME,
+    DEVICE_CLASS_VOLUME_FLOW_RATE,
     ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
@@ -80,7 +82,33 @@ DID_SENSORS = {
         ),
     ),
     "operating_phase": ("DID_OPERATING_PHASE", dict(accuracy_decimals=0)),
-    "power_level_raw": ("DID_POWER_LEVEL_RAW", dict(accuracy_decimals=0)),
+    "fuel_consumption": (
+        "DID_FUEL_CONSUMPTION",
+        dict(
+            unit_of_measurement="L/h",
+            accuracy_decimals=3,
+            device_class=DEVICE_CLASS_VOLUME_FLOW_RATE,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+    ),
+    "heating_power": (
+        "DID_HEATING_POWER",
+        dict(
+            unit_of_measurement=UNIT_WATT,
+            accuracy_decimals=0,
+            device_class=DEVICE_CLASS_POWER,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+    ),
+    "fuel_total": (
+        "DID_FUEL_TOTAL",
+        dict(
+            unit_of_measurement="L",
+            accuracy_decimals=3,
+            device_class=DEVICE_CLASS_VOLUME,
+            state_class=STATE_CLASS_TOTAL_INCREASING,
+        ),
+    ),
     "hours_total": ("DID_HOURS_TOTAL", _HOURS),
     "hours_power_0_25": ("DID_HOURS_POWER_0_25", _HOURS),
     "hours_power_25_50": ("DID_HOURS_POWER_25_50", _HOURS),
