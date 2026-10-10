@@ -65,27 +65,23 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-10 22:20, live at the heater)
-- Fire on power bank, WiFi weak (RTT 125–230 ms → API **log lines get dropped**; entity updates are reliable).
-- Captures (in `work/`, gitignored): `run2.log` (API logs, auto-reconnect loop), `events.log` (web `/events`
-  SSE: Heater*/Outlet/Overflow/Diag entities, auto-reconnect). Earlier: `run1.log`, `stress*.log`.
-- **Poll DIDs switch ON**: sweeps FEFF + FD00..FD44 every 5 s (normal mode while on). Turn off when done.
-- Heater running via tempcontrol S+ relay (ON); tempcontrol PID climate OFF.
-- Diagnostic tools on device (HA/web): Read Fault Codes, Send UDS Request (+ "UDS Request" text), Scan DID Range
-  (+ from/to numbers), Scan Identification DIDs, Scan Local IDs, Poll DIDs; results → "Diag Response".
-- Readable DIDs (default session, no security): F18B F193 F195 F1F0–F1F5 FD00–FD44 (54) FEFF; raw in
-  `docs/research.md`. 0000–0FFF, F100–F17F negative (NRC 31); service 21 not supported (NRC 11).
-- Last RX overflow 22:14:20 during polling (reader wake 119 µs after ISR). Suspected floating GPIO36
-  pulse_meter → removed; watch whether overflows recur.
+## Session state (2026-10-10 22:40, live at the heater)
+- Fire on power bank, WiFi weak (API log lines get dropped; entity updates reliable).
+- Captures (`work/`, gitignored): `run2.log` (API logs), `events.log` (web SSE Heater*/Outlet/Overflow/Diag).
+- Firmware polls `HydronicS3::sensor_dids()` every 5 s from boot (switch "Poll DIDs", on in on_boot) → DID sensors
+  (inlet, flame sensor temp, voltage, blower, glow plug, metering pump, phase, hour counters, flame).
+- RX overflows: root cause = flash writes at safe_mode "boot good" (OTA image confirm erases a sector; cache off,
+  interrupts masked ~70 ms). Fixed: `mcp2515_irq` `start_delay: 15s` + `safe_mode_id`: marks boot good, syncs
+  preferences, then starts reception. No other runtime flash writes. Any future flash write = overflow (MCP2515 2-deep).
+- Heater via tempcontrol S+ relay; tempcontrol PID climate OFF.
 -
-  Readable: factory-setting XMLs (coding names/values), seed/key DLL names, Java DTC job (uses 19 06, 19 10).
 
 ## Next steps
-1. Correlate polled DIDs across phases (regulation, pause, restart, start hold vs. good start) → identify live
-   values (inlet temp, power, pump rate, flame, glow, voltage) and the start-hold cause. Keep commentary factual.
-2. Startup fault: S+ start hold = `2C4` B2 `0x40` 1.7 s after request; P000252 (water pump) active during hold.
-   Minimize ignitions (soot), esp. cold. React-to-hold logic for tempcontrol is a component feature candidate.
-3. RX overflows: confirm gone after pulse_meter removal; else analyse the frozen timeline.
+1. Confirm the (?) DID decodes (voltage vs. multimeter, blower, FD0C, FD11 B1); find water pump, power %, FD08, FD0F.
+2. Map stored counters to DIDs (FD13/FD14/FD1x candidates).
+3. Startup fault: S+ start hold = `2C4` B2 `0x40` 1.7 s after request; P000252 (water pump) active during hold.
+   Capture a hold with DID polling on. Minimize ignitions (soot). React-to-hold = component feature candidate.
+4. Zero-loss option for later control: read MCP2515 from an IRAM ISR (survives flash ops).
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
