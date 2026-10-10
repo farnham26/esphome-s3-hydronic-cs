@@ -229,7 +229,37 @@ void HydronicS3::start_scan_(uint8_t service, uint32_t first, uint32_t last) {
   ESP_LOGI(TAG, "scan service %02X, %04X..%04X", service, (unsigned) first, (unsigned) last);
 }
 
+void HydronicS3::send_uds_request(const std::string &hex) {
+  std::vector<uint8_t> payload;
+  for (size_t i = 0; i + 1 < hex.size();) {
+    if (hex[i] == ' ') {
+      i++;
+      continue;
+    }
+    payload.push_back(static_cast<uint8_t>(strtoul(hex.substr(i, 2).c_str(), nullptr, 16)));
+    i += 2;
+  }
+  // Single frame only: up to 7 payload bytes.
+  if (payload.empty() || payload.size() > 7 || this->scan_active_ || !this->listen_only_hook_ ||
+      !this->listen_only_hook_(false)) {
+    ESP_LOGW(TAG, "UDS request '%s' not sent", hex.c_str());
+    return;
+  }
+  std::vector<uint8_t> frame(8, ISOTP_PAD);
+  frame[0] = payload.size();
+  std::copy(payload.begin(), payload.end(), frame.begin() + 1);
+  this->diag_requested_ = true;
+  this->single_until_ms_ = millis() + 3000;
+  this->canbus_->send_data(ID_DIAG_REQUEST, false, frame);
+  ESP_LOGI(TAG, "UDS request %s sent", hex.c_str());
+}
+
 void HydronicS3::loop() {
+  if (this->single_until_ms_ != 0 && static_cast<int32_t>(millis() - this->single_until_ms_) >= 0) {
+    this->single_until_ms_ = 0;
+    this->diag_requested_ = false;
+    this->listen_only_hook_(true);
+  }
   if (!this->scan_active_)
     return;
   const uint32_t now = millis();
@@ -357,6 +387,13 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
     this->publish_diag_(text);
     return;
   }
+  if (payload.size() >= 3 && payload[0] == 0x7F && this->single_until_ms_ != 0) {
+    char buf[40];
+    snprintf(buf, sizeof(buf), "negative: service %02X NRC %02X", payload[1], payload[2]);
+    if (payload[2] != NRC_RESPONSE_PENDING)
+      this->publish_diag_(buf);
+    return;
+  }
   if (payload.size() >= 3 && payload[0] == 0x7F) {  // negative response
     if (payload[2] == NRC_RESPONSE_PENDING) {
       this->scan_sent_ms_ = millis();
@@ -370,8 +407,18 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
     this->scan_answered_();
     return;
   }
-  if (payload.size() < 3 || payload[0] != 0x59 || payload[1] != 0x02)
+  if (payload.size() < 3 || payload[0] != 0x59 || payload[1] != 0x02) {
+    if (this->single_until_ms_ != 0 && !payload.empty() && (payload[0] & 0x40)) {  // other positive response
+      std::string text = "raw:";
+      char buf[4];
+      for (uint8_t b : payload) {
+        snprintf(buf, sizeof(buf), " %02X", b);
+        text += buf;
+      }
+      this->publish_diag_(text);
+    }
     return;
+  }
   std::string text;
   for (size_t i = 3; i + 4 <= payload.size(); i += 4) {
     char dtc[20];

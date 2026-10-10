@@ -72,6 +72,9 @@ class HydronicS3 : public Component {
   void scan_dids(uint16_t first, uint16_t last);
   /// Same for KWP2000-style ReadDataByLocalIdentifier (21 <id>), ids first..last.
   void scan_local_ids(uint8_t first, uint8_t last);
+  /// Sends one UDS request given as hex ("19 04 00 02 52 FF"); the answer goes to the
+  /// diag_response text sensor. Normal mode for 3 s via the listen-only hook.
+  void send_uds_request(const std::string &hex);
   /// Switches the bus controller between listen-only (true) and normal mode.
   void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }
 
@@ -119,6 +122,7 @@ class HydronicS3 : public Component {
   uint8_t scan_service_{0x22};
   uint16_t nrc_count_[256]{};  // negative response codes seen during the scan
   void start_scan_(uint8_t service, uint32_t first, uint32_t last);
+  uint32_t single_until_ms_{0};  // single request: back to listen-only after this
   uint32_t scan_rtt_sum_ms_{0};  // request to answer, answered requests only
   uint32_t scan_rtt_max_ms_{0};
   void scan_answered_();

@@ -352,6 +352,17 @@ sensor:
     web_server:
       sorting_group_id: group_heater
 
+text:
+  - platform: template
+    id: uds_request
+    name: "UDS Request"
+    entity_category: config
+    mode: text
+    optimistic: true
+    initial_value: "19 02 08"
+    web_server:
+      sorting_group_id: group_heater
+
 number:
   # DID scan range (decimal in the UI, 0..65535).
   - platform: template
@@ -380,6 +391,12 @@ number:
       sorting_group_id: group_heater
 
 button:
+  - platform: template
+    name: "Send UDS Request"
+    web_server:
+      sorting_group_id: group_heater
+    on_press:
+      - lambda: "id(heater).send_uds_request(id(uds_request).state);"
   - platform: template
     name: "Scan Local IDs"
     web_server:
