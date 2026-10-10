@@ -65,3 +65,23 @@
 - https://undermountac.com/products/eberspacher-espar-canbus-interface-module-to-wifi
 - Unread (fetch blocked): fordtransitusaforum threads 101989 ("Spoofing a second EasyStart Pro") and 93875 ("Espar S3 CL Canbus control thermostat")
 - https://docs.m5stack.com/en/module/commu, https://esphome.io/components/canbus/esp32_can/
+
+## Hydronic S3 capture (2026-10-10, EasyStart Pro + tempcontrol S+)
+EasyStart protocol, 11-bit, 500 kbit/s; **no 29-bit / J1939 traffic seen**. IDs as for the Airtronic S3
+(054–057, 2C4–2C6, 60D, 625, init burst 05C–10A, 065).
+
+| Field | Meaning | Confidence |
+|---|---|---|
+| `2C4` B4–B5 u16le | outlet coolant temp, (raw − 500) / 10 °C | confirmed: holds ~75 °C in regulation, drops with mixer open |
+| `2C4` B0 | `03` idle (also seen during residual heat), `05` active (heating, control pause, after-run), `41`→`C1`→`03` end-of-run, `00` with `FE FF` fillers = one-cycle re-init | partly |
+| `2C4` B1 bit 3 | burner run-down (~65–90 s), into control pause or at switch-off | 3 observations |
+| `054` B0 / B1 | B0 `01` on / `00` off; B1 mode: `01` heat, `03` residual heat | consistent |
+| `625` B1 | `10` while heater active, `00` idle | consistent |
+
+Not in cyclic traffic: power level, pump rate, inlet temp, glow plug, flame (glow/ignition/restart from
+pause change no byte). S+ (switch input) status bit: not identified yet (test was confounded).
+
+**Diagnostics: UDS (ISO 14229) over ISO-TP (ISO 15765-2)**, tester `0x7A0` → heater `0x73C`, padding `AA`,
+flow control `30 08 14` (BS 8, STmin 20 ms). Example: `19 02 08` (ReadDTCInformation by status mask) →
+`59 02 08 | 00 02 52 2C | 00 02 22 28` = P000252 (status 2C), P000222 (status 28). Live values should be
+readable via `22` ReadDataByIdentifier — DIDs unknown, needs TX (safety review first).

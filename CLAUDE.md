@@ -44,7 +44,10 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
   so the MCP2515 reader gets the shared bus within ~200 µs.
 - Stress test: `esphome/hydronic-s3-loopback.yaml` (MCP2515 loopback, 3 back-to-back frames per loop,
   full-screen redraw every 200 ms). Pass = lost/reord/corrupt/ovf/drop all 0.
-- After an OTA, do **not** USB-reset within ~1 min: the new image is not yet marked valid and the bootloader rolls back.
+- Flash **via OTA only** (user's rule; the Fire runs on the M5GO battery). After an OTA, never USB-reset within
+  ~1 min: the new image is not yet marked valid and the bootloader rolls back.
+- Reader priority 23 (above lwIP tcpip 18, esp_timer 22); it holds the SPI bus per drain and drives CS itself.
+  Never add GPIO one_wire (interrupt-locking bit-bang on the loop core) — it overflowed the MCP2515 every poll.
 
 ## Secrets
 Root `secrets.yaml` (user-maintained, gitignored, **never read**); `esphome/secrets.yaml` symlinks to it.
@@ -58,11 +61,11 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
 ## Next steps
-1. Flash, put on bus, read logs over full cycle: power-on → start → regulation (~75 °C outlet) →
-   pause (85 °C) → restart (70 °C) → off. Vary EasyStart setpoint/mode.
-2. 29-bit IDs: J1939 HTR **PGN 65133 (0x18FE6D45)**. 11-bit: compare Airtronic map.
-3. Decode into component sensors (temps, state, pump, faults); display shows decoded values.
-4. If temps not cyclic: UDS diagnostics.
+1. Fix: RX overflow every exactly 240 s (live: 18:59:15.271, 19:03:15.272). Reproduce with the loopback stress.
+2. Per-frame read takes 300–700 µs with the bus held (expected ~50 µs): find where.
+3. S+ (switch input, used by tempcontrol) status bit: repeat test with EasyStart fully off.
+4. Power, pump rate, inlet temp, flame, glow plug: not cyclic → UDS `22` ReadDataByIdentifier on
+   `0x7A0`/`0x73C` (needs TX; DIDs unknown; safety review first). Passive DTC decode of EasyStart readouts.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
