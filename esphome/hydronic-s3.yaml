@@ -7,7 +7,6 @@ substitutions:
   can_cs: GPIO12            # COMMU CAN CS on Fire/Basic (M5Stack COMMU examples)
   can_int: GPIO15           # COMMU CAN INT
   can_mode: LISTENONLY      # no ACK, no TX: invisible on the bus
-  onewire_pin: GPIO26       # M5GO base Port B
   pump_pin: GPIO36          # M5GO base Port B, input-only, no internal pull-up: opto needs external pull-up
 
 esphome:
@@ -41,7 +40,6 @@ logger:
     light: WARN
     ledc.output: WARN
     lvgl: INFO
-    dallas.temp.sensor: INFO
     pulse_meter: INFO
 
 api:
@@ -95,12 +93,16 @@ hydronic_s3:
   id: heater
   canbus_id: heater_can
 
-# --- reference sensors, to check decoded values against ---
-one_wire:
-  - platform: gpio
-    pin: ${onewire_pin}
+# No GPIO one_wire/dallas_temp here: its bit-banging locks interrupts on the
+# loop core long enough to block the MCP2515 INT ISR during frame bursts (RX
+# overflow every poll, measured).
 
 binary_sensor:
+  - platform: hydronic_s3
+    on_request:
+      name: "Heater On Request"
+      web_server:
+        sorting_group_id: group_heater
   - id: !extend button_a
     on_press:
       - lvgl.page.previous:
@@ -115,6 +117,12 @@ font:
   - file: "gfonts://Roboto"
     id: font_body
     size: 18
+    glyphsets: [GF_Latin_Kernel]
+    glyphs: ["°"]
+  - file: "gfonts://Roboto"
+    id: font_big
+    size: 48
+    glyphs: "0123456789.-°C "
   - file: "gfonts://Roboto Mono"
     id: font_mono
     size: 14
@@ -150,11 +158,22 @@ lvgl:
                   text: "Hydronic S3"
                   text_font: font_title
                   text_color: 0xFF9030
+              - label:
+                  id: lbl_can
+                  align: RIGHT_MID
+                  text: "CAN --"
+                  text_color: 0xFF4040
+        - label:
+            id: lbl_outlet
+            x: 10
+            y: 40
+            text_font: font_big
+            text: "--.- °C"
         - label:
             id: lbl_heater
             x: 10
-            y: 40
-            text: "Outlet  --\nInlet   --\nPower   --\nState   --"
+            y: 100
+            text: "Outlet temperature\nState  --\nRequest  --"
         - label:
             id: lbl_refs
             x: 10
@@ -186,12 +205,32 @@ interval:
               lv_label_set_text(lbl, txt);
           };
           char buf[512];
-          snprintf(buf, sizeof(buf), "Flow %.1f  Ret %.1f  Pump %.2f Hz\nBat %.0f%%%s   %s",
-                   id(coolant_flow).state, id(coolant_return).state, id(pump_rate).state,
+          const float t = id(heater).outlet_temperature();
+          if (std::isnan(t)) snprintf(buf, sizeof(buf), "--.- °C");
+          else snprintf(buf, sizeof(buf), "%.1f °C", t);
+          set(id(lbl_outlet), buf);
+          const int st = id(heater).state(), rq = id(heater).on_request();
+          const char *name = hydronic_s3::HydronicS3::state_name(st);
+          char code[8];
+          snprintf(code, sizeof(code), st < 0 ? "--" : "0x%02X", st);
+          snprintf(buf, sizeof(buf), "Outlet temperature\nState  %s\nRequest  %s", name != nullptr ? name : code,
+                   rq < 0 ? "--" : rq == 1 ? "on" : "off");
+          set(id(lbl_heater), buf);
+
+          snprintf(buf, sizeof(buf), "Pump %.2f Hz (ref)\nBat %.0f%%%s   %s",
+                   id(pump_rate).state,
                    id(battery_level).state,
                    id(battery_full).state ? " full" : id(battery_charging).state ? " chg" : "",
                    id(wifi_ip).state.empty() ? "no wifi" : id(wifi_ip).state.c_str());
           set(id(lbl_refs), buf);
+
+          // Header: live CAN rate, green while frames arrive.
+          static uint32_t last_frames = 0;
+          const uint32_t frames = id(heater).frames(), fps = frames - last_frames;
+          last_frames = frames;
+          snprintf(buf, sizeof(buf), "CAN %u fps", (unsigned) fps);
+          set(id(lbl_can), buf);
+          lv_obj_set_style_text_color(id(lbl_can), lv_color_hex(fps ? 0x40FF40 : 0xFF4040), 0);
 
           auto *can = id(heater_can);
           snprintf(buf, sizeof(buf), "%u fr  %u IDs  ovf %u  drop %u  q %u",
@@ -215,7 +254,37 @@ interval:
           buf[n] = 0;
           set(id(lbl_ids), n ? buf : "No frames yet");
 
+  # Reader health: driver vs processed counts, INT level, controller flags.
+  - interval: 10s
+    then:
+      - lambda: |-
+          uint8_t intf, eflg, rec;
+          bool int_low;
+          auto *can = id(heater_can);
+          can->read_diag(intf, eflg, rec, int_low);
+          uint32_t wake_us, drain_us, frame_us;
+          can->take_latency_max(wake_us, drain_us, frame_us);
+          ESP_LOGI("can_diag", "read %u processed %u ovf %u drop %u qmax %u | wake max %u us frame max %u us drain max %u us | INT %s CANINTF %02X EFLG %02X REC %u",
+                   (unsigned) can->frames_read(), (unsigned) id(heater).frames(), (unsigned) can->rx_overflows(),
+                   (unsigned) can->queue_drops(), (unsigned) can->queue_high_water(), (unsigned) wake_us,
+                   (unsigned) frame_us, (unsigned) drain_us, int_low ? "LOW" : "high", intf, eflg, rec);
+
 sensor:
+  - platform: hydronic_s3
+    outlet_temperature:
+      name: "Outlet Temperature"
+      filters:
+        # The raw value toggles by 0.1 degC several times a second.
+        - or:
+            - delta: 0.2
+            - throttle: 30s
+      web_server:
+        sorting_group_id: group_heater
+    state_code:
+      name: "Heater State Code"
+      entity_category: diagnostic
+      web_server:
+        sorting_group_id: group_heater
   - platform: template
     name: "CAN Frame Rate"
     unit_of_measurement: "fps"
@@ -254,20 +323,6 @@ sensor:
     lambda: "return id(heater_can)->queue_high_water();"
     web_server:
       sorting_group_id: group_can
-  - platform: dallas_temp
-    id: coolant_flow
-    name: "Coolant flow (ref)"
-    address: 0x0000000000000000   # set after first boot (addresses are logged)
-    update_interval: 5s
-    web_server:
-      sorting_group_id: group_heater
-  - platform: dallas_temp
-    id: coolant_return
-    name: "Coolant return (ref)"
-    address: 0x0000000000000001
-    update_interval: 5s
-    web_server:
-      sorting_group_id: group_heater
   - platform: pulse_meter
     id: pump_rate
     name: "Metering pump rate (ref)"
@@ -283,6 +338,11 @@ sensor:
       sorting_group_id: group_heater
 
 text_sensor:
+  - platform: hydronic_s3
+    state:
+      name: "Heater State"
+      web_server:
+        sorting_group_id: group_heater
   - platform: wifi_info
     ip_address:
       id: wifi_ip
