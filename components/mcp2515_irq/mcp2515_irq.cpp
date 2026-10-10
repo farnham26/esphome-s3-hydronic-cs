@@ -2,12 +2,17 @@
 #include "mcp2515_irq.h"
 #include "esphome/core/log.h"
 
+#include <esp_timer.h>
+
 namespace esphome::mcp2515_irq {
 
 static const char *const TAG = "mcp2515_irq";
 
-// Above the main loop task, so a pending frame preempts rendering on the same core.
-static constexpr UBaseType_t READER_PRIORITY = 18;
+// Above lwIP's tcpip task (18, unpinned) and esp_timer (22): at equal priority the
+// reader only gets round-robin slices (1 ms tick) while tcpip pushes API traffic on
+// this core, and the MCP2515's two RX buffers overflow in a frame burst. WiFi (23)
+// is pinned to core 0.
+static constexpr UBaseType_t READER_PRIORITY = 23;
 static constexpr uint32_t READER_STACK = 3072;
 // SIDH SIDL EID8 EID0 DLC D0..D7, as streamed by READ RX BUFFER.
 static constexpr size_t RXB_LEN = 13;
@@ -20,6 +25,36 @@ const struct MCP2515::TxBnRegs MCP2515::TXB[N_TXBUFFERS] = {{MCP_TXB0CTRL, MCP_T
 
 const struct MCP2515::RxBnRegs MCP2515::RXB[N_RXBUFFERS] = {{MCP_RXB0CTRL, MCP_RXB0SIDH, MCP_RXB0DATA, CANINTF_RX0IF},
                                                             {MCP_RXB1CTRL, MCP_RXB1SIDH, MCP_RXB1DATA, CANINTF_RX1IF}};
+
+void MCP2515::spi_setup() {
+  if (this->own_cs_ == nullptr) {
+    this->own_cs_ = this->cs_;
+    this->cs_ = nullptr;  // the delegate gets no CS
+  }
+  SPIBase::spi_setup();
+  this->own_cs_->setup();
+  this->own_cs_->digital_write(true);
+}
+
+void MCP2515::enable() {
+  if (!this->bus_held_)
+    SPIBase::enable();
+  this->own_cs_->digital_write(false);
+}
+
+void MCP2515::disable() {
+  this->own_cs_->digital_write(true);
+  if (!this->bus_held_)
+    SPIBase::disable();
+}
+
+uint8_t MCP2515::read_intf_() {
+  uint8_t buf[3] = {INSTRUCTION_READ, MCP_CANINTF, 0};
+  this->enable();
+  this->transfer_array(buf, sizeof(buf));
+  this->disable();
+  return buf[2];
+}
 
 bool MCP2515::setup_internal() {
   this->spi_setup();
@@ -69,7 +104,19 @@ bool MCP2515::setup_internal() {
   return true;
 }
 
+void MCP2515::read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low) {
+  if (this->spi_mutex_ != nullptr)
+    xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
+  intf = this->read_register_(MCP_CANINTF);
+  eflg = this->read_register_(MCP_EFLG);
+  rec = this->read_register_(MCP_REC);
+  if (this->spi_mutex_ != nullptr)
+    xSemaphoreGive(this->spi_mutex_);
+  int_low = this->interrupt_pin_ != nullptr && !this->interrupt_pin_->digital_read();
+}
+
 void IRAM_ATTR MCP2515::gpio_isr_(MCP2515 *self) {
+  self->isr_us_ = esp_timer_get_time();
   BaseType_t woken = pdFALSE;
   vTaskNotifyGiveFromISR(self->reader_task_handle_, &woken);
   portYIELD_FROM_ISR(woken);
@@ -79,18 +126,32 @@ void MCP2515::reader_task_(void *arg) {
   auto *self = static_cast<MCP2515 *>(arg);
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    const int64_t woke = esp_timer_get_time();
+    const int64_t isr_us = self->isr_us_;
+    // isr_us_ == 0: the edge fell while draining and its frames are already read.
+    if (isr_us != 0 && woke - isr_us > self->max_wake_us_)
+      self->max_wake_us_ = woke - isr_us;
     // INT is level-active: drain until it releases, so an edge that fell while
     // draining is never missed.
     do {
       self->drain_();
     } while (!self->interrupt_pin_->digital_read());
+    self->isr_us_ = 0;
+    const uint32_t drain_us = esp_timer_get_time() - woke;
+    if (drain_us > self->max_drain_us_)
+      self->max_drain_us_ = drain_us;
   }
 }
 
 void MCP2515::drain_() {
   xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
+  // One bus acquisition for the whole drain: per-instruction acquisition would
+  // let a display transfer in before every read and the burst outruns the reader.
+  SPIBase::enable();
+  this->bus_held_ = true;
   for (;;) {
-    uint8_t intf = this->read_register_(MCP_CANINTF);
+    const int64_t t0 = esp_timer_get_time();
+    uint8_t intf = this->read_intf_();
     if ((intf & (CANINTF_RX0IF | CANINTF_RX1IF | CANINTF_ERRIF | CANINTF_MERRF)) == 0)
       break;
     // With rollover (BUKT), RXB1 only fills while RXB0 is full. A frame that
@@ -98,14 +159,19 @@ void MCP2515::drain_() {
     // frame, so re-check RXB1 right after freeing RXB0 (as Linux mcp251x does).
     if (intf & CANINTF_RX0IF) {
       this->receive_(RXB0);
+      const uint32_t frame_us = esp_timer_get_time() - t0;
+      if (frame_us > this->max_frame_us_)
+        this->max_frame_us_ = frame_us;
       if ((intf & CANINTF_RX1IF) == 0)
-        intf |= this->read_register_(MCP_CANINTF) & (CANINTF_RX1IF | CANINTF_ERRIF | CANINTF_MERRF);
+        intf |= this->read_intf_() & (CANINTF_RX1IF | CANINTF_ERRIF | CANINTF_MERRF);
     }
     if (intf & CANINTF_RX1IF)
       this->receive_(RXB1);
     if (intf & CANINTF_ERRIF) {
       if (this->read_register_(MCP_EFLG) & (EFLG_RX0OVR | EFLG_RX1OVR)) {
         this->rx_overflows_++;
+        ESP_LOGW(TAG, "RX overflow #%u (frames read %u)", (unsigned) this->rx_overflows_,
+                 (unsigned) this->frames_read_);
         this->modify_register_(MCP_EFLG, EFLG_RX0OVR | EFLG_RX1OVR, 0);
       }
       this->modify_register_(MCP_CANINTF, CANINTF_ERRIF, 0);
@@ -113,6 +179,8 @@ void MCP2515::drain_() {
     if (intf & CANINTF_MERRF)
       this->modify_register_(MCP_CANINTF, CANINTF_MERRF, 0);
   }
+  this->bus_held_ = false;
+  SPIBase::disable();
   xSemaphoreGive(this->spi_mutex_);
 }
 
@@ -131,11 +199,11 @@ void MCP2515::receive_(RXBn rxbn) {
 }
 
 bool MCP2515::read_rx_buffer_(RXBn rxbn, canbus::CanFrame *frame) {
-  uint8_t buf[RXB_LEN];
+  uint8_t xfer[1 + RXB_LEN] = {rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1};
   this->enable();
-  this->write_byte(rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1);
-  this->read_array(buf, RXB_LEN);
+  this->transfer_array(xfer, sizeof(xfer));
   this->disable();  // raising CS after READ RX BUFFER clears RXnIF
+  const uint8_t *buf = xfer + 1;
 
   const uint8_t dlc = buf[MCP_DLC] & DLC_MASK;
   if (dlc > canbus::CAN_MAX_DATA_LENGTH)

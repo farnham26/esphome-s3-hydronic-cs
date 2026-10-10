@@ -60,10 +60,12 @@ enum STAT : uint8_t { STAT_RX0IF = (1 << 0), STAT_RX1IF = (1 << 1) };
 static const uint8_t STAT_RXIF_MASK = STAT_RX0IF | STAT_RX1IF;
 static const uint8_t EFLG_ERRORMASK = EFLG_RX1OVR | EFLG_RX0OVR | EFLG_TXBO | EFLG_TXEP | EFLG_RXEP;
 
-class MCP2515 final : public canbus::Canbus,
-                      public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_LEADING,
-                                            spi::DATA_RATE_8MHZ> {
+using SPIBase =
+    spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_LEADING, spi::DATA_RATE_8MHZ>;
+
+class MCP2515 final : public canbus::Canbus, public SPIBase {
  public:
+  void spi_setup() override;
   MCP2515(){};
   void set_mcp_clock(CanClock clock) { this->mcp_clock_ = clock; };
   void set_mcp_mode(const CanctrlReqopMode mode) { this->mcp_mode_ = mode; }
@@ -77,6 +79,14 @@ class MCP2515 final : public canbus::Canbus,
   /// Most frames ever waiting in the RX queue.
   uint32_t queue_high_water() const { return this->queue_high_water_; }
   uint32_t frames_read() const { return this->frames_read_; }
+  /// Snapshot of the controller state, for diagnosing a stalled reader or a faulty bus.
+  void read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low);
+  /// Worst INT-edge-to-reader-wake latency and drain duration since the last call, in us.
+  void take_latency_max(uint32_t &wake_us, uint32_t &drain_us, uint32_t &frame_us) {
+    wake_us = this->max_wake_us_.exchange(0);
+    drain_us = this->max_drain_us_.exchange(0);
+    frame_us = this->max_frame_us_.exchange(0);
+  }
   static const struct TxBnRegs {
     REGISTER CTRL;
     REGISTER SIDH;
@@ -96,6 +106,14 @@ class MCP2515 final : public canbus::Canbus,
   bool setup_internal() override;
   canbus::Error set_mode_(CanctrlReqopMode mode);
 
+  // CS is driven here, not by the SPI delegate, so the reader can hold the bus
+  // across several MCP2515 instructions (see drain_()). These hide SPIBase's.
+  void enable();
+  void disable();
+  GPIOPin *own_cs_{nullptr};
+  bool bus_held_{false};  // only changed by the reader, under spi_mutex_
+  uint8_t read_intf_();
+
   // Interrupt-driven reception: the ISR wakes reader_task_, which drains the RX
   // buffers into rx_queue_; read_message() pops from it in the main loop.
   static void gpio_isr_(MCP2515 *self);
@@ -114,6 +132,10 @@ class MCP2515 final : public canbus::Canbus,
   std::atomic<uint32_t> queue_drops_{0};
   std::atomic<uint32_t> queue_high_water_{0};
   std::atomic<uint32_t> frames_read_{0};
+  std::atomic<uint32_t> max_wake_us_{0};
+  std::atomic<uint32_t> max_drain_us_{0};
+  std::atomic<uint32_t> max_frame_us_{0};  // one frame: CANINTF read + RX buffer read + queue
+  volatile int64_t isr_us_{0};  // time of the last INT edge
 
   uint8_t read_register_(REGISTER reg);
   void read_registers_(REGISTER reg, uint8_t values[], uint8_t n);
