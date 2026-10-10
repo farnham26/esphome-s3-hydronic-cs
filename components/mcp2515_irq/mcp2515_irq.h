@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 
+#include <driver/spi_master.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
@@ -108,11 +109,18 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   bool setup_internal() override;
   canbus::Error set_mode_(CanctrlReqopMode mode);
 
-  // CS is driven here, not by the SPI delegate, so the reader can hold the bus
-  // across several MCP2515 instructions (see drain_()). These hide SPIBase's.
+  // The driver talks to IDF directly through its own device on the bus ESPHome
+  // set up, so the hot path is IRAM-resident (IDF polling transactions, inline
+  // GPIO register access) and the reader can hold the bus across several
+  // MCP2515 instructions (see drain_()). CS is driven here. These hide SPIBase's.
   void enable();
   void disable();
+  void set_cs_(bool level);
+  void transfer_(size_t len, bool read);
   GPIOPin *own_cs_{nullptr};
+  uint8_t cs_gpio_{0};
+  uint8_t int_gpio_{0};
+  spi_device_handle_t dev_{nullptr};
   bool bus_held_{false};  // only changed by the reader, under spi_mutex_
   uint8_t read_intf_();
 

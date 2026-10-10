@@ -3,6 +3,8 @@
 #include "esphome/core/log.h"
 
 #include <esp_timer.h>
+#include <hal/gpio_ll.h>
+#include <soc/gpio_struct.h>
 
 namespace esphome::mcp2515_irq {
 
@@ -27,46 +29,74 @@ const struct MCP2515::RxBnRegs MCP2515::RXB[N_RXBUFFERS] = {{MCP_RXB0CTRL, MCP_R
                                                             {MCP_RXB1CTRL, MCP_RXB1SIDH, MCP_RXB1DATA, CANINTF_RX1IF}};
 
 void MCP2515::spi_setup() {
-  if (this->own_cs_ == nullptr) {
-    this->own_cs_ = this->cs_;
-    this->cs_ = nullptr;  // the delegate gets no CS
-  }
-  SPIBase::spi_setup();
+  if (this->dev_ != nullptr)
+    return;
+  // No ESPHome SPI delegate: an own IDF device on the same host. CS must be an
+  // internal GPIO (driven by register access).
+  this->own_cs_ = this->cs_;
   this->own_cs_->setup();
   this->own_cs_->digital_write(true);
+  this->cs_gpio_ = static_cast<InternalGPIOPin *>(this->own_cs_)->get_pin();
+  spi_device_interface_config_t cfg{};
+  cfg.mode = 0;
+  cfg.clock_speed_hz = static_cast<int>(this->data_rate_);
+  cfg.spics_io_num = -1;
+  cfg.queue_size = 1;
+  if (spi_bus_add_device(this->parent_->get_interface(), &cfg, &this->dev_) != ESP_OK)
+    ESP_LOGE(TAG, "Failed to add SPI device");
 }
 
-void MCP2515::enable() {
+void IRAM_ATTR MCP2515::set_cs_(bool level) { gpio_ll_set_level(&GPIO, static_cast<gpio_num_t>(this->cs_gpio_), level); }
+
+void IRAM_ATTR MCP2515::enable() {
   if (!this->bus_held_)
-    SPIBase::enable();
-  this->own_cs_->digital_write(false);
+    spi_device_acquire_bus(this->dev_, portMAX_DELAY);
+  this->set_cs_(false);
 }
 
-void MCP2515::disable() {
-  this->own_cs_->digital_write(true);
+void IRAM_ATTR MCP2515::disable() {
+  this->set_cs_(true);
   if (!this->bus_held_)
-    SPIBase::disable();
+    spi_device_release_bus(this->dev_);
+}
+
+// Up to 4 bytes go through the transaction's own tx_data/rx_data (no DMA);
+// longer ones use xfer_ (aligned, RX padded to a multiple of 4 by spi_read_).
+void IRAM_ATTR MCP2515::transfer_(size_t len, bool read) {
+  spi_transaction_t t{};
+  t.length = len * 8;
+  if (len <= 4) {
+    t.flags = SPI_TRANS_USE_TXDATA | (read ? SPI_TRANS_USE_RXDATA : 0);
+    memcpy(t.tx_data, this->xfer_, len);
+  } else {
+    t.tx_buffer = this->xfer_;
+    t.rx_buffer = read ? this->xfer_ : nullptr;
+  }
+  spi_device_polling_transmit(this->dev_, &t);
+  if (read && len <= 4)
+    memcpy(this->xfer_, t.rx_data, len);
 }
 
 static constexpr size_t round4(size_t n) { return (n + 3) & ~static_cast<size_t>(3); }
 
-void MCP2515::spi_write_(size_t len) {
+void IRAM_ATTR MCP2515::spi_write_(size_t len) {
   this->enable();
-  this->write_array(this->xfer_, len);
+  this->transfer_(len, false);
   this->disable();
 }
 
-void MCP2515::spi_read_(size_t len) {
+void IRAM_ATTR MCP2515::spi_read_(size_t len) {
   // Padding bytes clock the auto-incremented address on: harmless for the
   // read instructions this is used with.
-  const size_t padded = round4(len);
-  std::fill(this->xfer_ + len, this->xfer_ + padded, 0);
+  const size_t padded = len <= 4 ? len : round4(len);
+  for (size_t i = len; i < padded; i++)
+    this->xfer_[i] = 0;
   this->enable();
-  this->transfer_array(this->xfer_, padded);
+  this->transfer_(padded, true);
   this->disable();
 }
 
-uint8_t MCP2515::read_intf_() {
+uint8_t IRAM_ATTR MCP2515::read_intf_() {
   this->xfer_[0] = INSTRUCTION_READ;
   this->xfer_[1] = MCP_CANINTF;
   this->spi_read_(3);
@@ -114,6 +144,7 @@ bool MCP2515::setup_internal() {
       return false;
     }
     this->interrupt_pin_->setup();
+    this->int_gpio_ = this->interrupt_pin_->get_pin();
     this->interrupt_pin_->attach_interrupt(MCP2515::gpio_isr_, this, gpio::INTERRUPT_FALLING_EDGE);
     // INT may already be low: frames that arrived before the edge interrupt was armed.
     xTaskNotifyGive(this->reader_task_handle_);
@@ -132,7 +163,7 @@ void MCP2515::read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_lo
   int_low = this->interrupt_pin_ != nullptr && !this->interrupt_pin_->digital_read();
 }
 
-void MCP2515::trace_(TraceType type, uint8_t intf, int64_t us) {
+void IRAM_ATTR MCP2515::trace_(TraceType type, uint8_t intf, int64_t us) {
   this->trace_buf_[this->trace_head_] = {static_cast<uint32_t>(us), type, intf};
   this->trace_head_ = (this->trace_head_ + 1) % TRACE_LEN;
 }
@@ -156,7 +187,7 @@ void IRAM_ATTR MCP2515::gpio_isr_(MCP2515 *self) {
   portYIELD_FROM_ISR(woken);
 }
 
-void MCP2515::reader_task_(void *arg) {
+void IRAM_ATTR MCP2515::reader_task_(void *arg) {
   auto *self = static_cast<MCP2515 *>(arg);
   for (;;) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -172,7 +203,7 @@ void MCP2515::reader_task_(void *arg) {
     // draining is never missed.
     do {
       self->drain_();
-    } while (!self->interrupt_pin_->digital_read());
+    } while (!gpio_ll_get_level(&GPIO, static_cast<gpio_num_t>(self->int_gpio_)));
     self->isr_us_ = 0;
     self->trace_(TRACE_DRAIN_END, 0, esp_timer_get_time());
     const uint32_t drain_us = esp_timer_get_time() - woke;
@@ -181,11 +212,11 @@ void MCP2515::reader_task_(void *arg) {
   }
 }
 
-void MCP2515::drain_() {
+void IRAM_ATTR MCP2515::drain_() {
   xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
   // One bus acquisition for the whole drain: per-instruction acquisition would
   // let a display transfer in before every read and the burst outruns the reader.
-  SPIBase::enable();
+  spi_device_acquire_bus(this->dev_, portMAX_DELAY);
   this->bus_held_ = true;
   for (;;) {
     const int64_t t0 = esp_timer_get_time();
@@ -227,11 +258,11 @@ void MCP2515::drain_() {
       this->modify_register_(MCP_CANINTF, CANINTF_MERRF, 0);
   }
   this->bus_held_ = false;
-  SPIBase::disable();
+  spi_device_release_bus(this->dev_);
   xSemaphoreGive(this->spi_mutex_);
 }
 
-void MCP2515::receive_(RXBn rxbn) {
+void IRAM_ATTR MCP2515::receive_(RXBn rxbn) {
   canbus::CanFrame frame;
   if (!this->read_rx_buffer_(rxbn, &frame))
     return;
@@ -245,7 +276,7 @@ void MCP2515::receive_(RXBn rxbn) {
     this->queue_high_water_ = waiting;
 }
 
-bool MCP2515::read_rx_buffer_(RXBn rxbn, canbus::CanFrame *frame) {
+bool IRAM_ATTR MCP2515::read_rx_buffer_(RXBn rxbn, canbus::CanFrame *frame) {
   this->xfer_[0] = rxbn == RXB0 ? INSTRUCTION_READ_RX0 : INSTRUCTION_READ_RX1;
   this->spi_read_(1 + RXB_LEN);  // raising CS after READ RX BUFFER clears RXnIF
   const uint8_t *buf = this->xfer_ + 1;

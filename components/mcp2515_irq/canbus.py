@@ -1,7 +1,7 @@
 # Interrupt-driven fork of ESPHome core mcp2515 (2026.9.1).
 from esphome import pins
 import esphome.codegen as cg
-from esphome.components import canbus, spi
+from esphome.components import canbus, esp32, spi
 from esphome.components.canbus import CanbusComponent
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_INTERRUPT_PIN, CONF_MODE, CONF_RX_QUEUE_LEN
@@ -56,6 +56,13 @@ async def to_code(config: ConfigType) -> None:
     if CONF_INTERRUPT_PIN in config:
         pin = await cg.gpio_pin_expression(config[CONF_INTERRUPT_PIN])
         cg.add(var.set_interrupt_pin(pin))
+    # The reader's SPI path runs from IRAM: no flash-cache misses while draining.
+    # IDF only allows the SPI options with FreeRTOS and heap functions in IRAM
+    # (ESPHome places both in flash to save IRAM).
+    esp32.add_idf_sdkconfig_option("CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH", False)
+    esp32.add_idf_sdkconfig_option("CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH", False)
+    esp32.add_idf_sdkconfig_option("CONFIG_SPI_MASTER_ISR_IN_IRAM", True)
+    esp32.add_idf_sdkconfig_option("CONFIG_SPI_MASTER_IN_IRAM", True)
     cg.add(var.set_rx_queue_len(config[CONF_RX_QUEUE_LEN]))
 
     await spi.register_spi_device(var, config)
