@@ -254,7 +254,38 @@ void HydronicS3::send_uds_request(const std::string &hex) {
   ESP_LOGI(TAG, "UDS request %s sent", hex.c_str());
 }
 
+void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
+  if (this->polling_ || this->scan_active_ || dids.empty() || !this->listen_only_hook_ ||
+      !this->listen_only_hook_(false))
+    return;
+  this->poll_dids_ = std::move(dids);
+  this->poll_interval_ms_ = interval_ms;
+  this->poll_next_ms_ = millis();
+  this->polling_ = true;
+  ESP_LOGI(TAG, "polling %u DIDs every %u ms", (unsigned) this->poll_dids_.size(), (unsigned) interval_ms);
+}
+
+void HydronicS3::stop_polling() {
+  if (!this->polling_)
+    return;
+  this->polling_ = false;
+  if (!this->scan_active_) {
+    this->diag_requested_ = false;
+    this->listen_only_hook_(true);
+  }
+}
+
 void HydronicS3::loop() {
+  if (this->polling_ && !this->scan_active_ && static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
+    // Start a sweep over the list (reuses the scan state machine).
+    this->poll_next_ms_ = millis() + this->poll_interval_ms_;
+    this->scan_service_ = 0x22;
+    this->poll_index_ = 0;
+    this->scan_next_ = 0;
+    this->scan_last_ = this->poll_dids_.size() - 1;
+    this->scan_awaiting_ = false;
+    this->scan_active_ = true;
+  }
   if (this->single_until_ms_ != 0 && static_cast<int32_t>(millis() - this->single_until_ms_) >= 0) {
     this->single_until_ms_ = 0;
     this->diag_requested_ = false;
@@ -268,6 +299,10 @@ void HydronicS3::loop() {
       return;
     this->scan_awaiting_ = false;
     this->scan_silent_++;
+  }
+  if (this->scan_next_ > this->scan_last_ && this->polling_) {  // sweep done, stay in normal mode
+    this->scan_active_ = false;
+    return;
   }
   if (this->scan_next_ > this->scan_last_) {
     this->scan_active_ = false;
@@ -284,7 +319,7 @@ void HydronicS3::loop() {
     this->publish_diag_(buf);
     return;
   }
-  const uint16_t id = static_cast<uint16_t>(this->scan_next_++);
+  const uint16_t id = this->polling_ ? this->poll_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
   std::vector<uint8_t> req;
   if (this->scan_service_ == 0x21)
     req = {0x02, 0x21, static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};

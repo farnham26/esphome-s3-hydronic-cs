@@ -75,6 +75,10 @@ class HydronicS3 : public Component {
   /// Sends one UDS request given as hex ("19 04 00 02 52 FF"); the answer goes to the
   /// diag_response text sensor. Normal mode for 3 s via the listen-only hook.
   void send_uds_request(const std::string &hex);
+  /// Reads the given DIDs in a sweep every interval_ms until stop_polling(); answers
+  /// go to the diag_response text sensor. Normal mode while polling.
+  void start_polling(std::vector<uint16_t> dids, uint32_t interval_ms);
+  void stop_polling();
   /// Switches the bus controller between listen-only (true) and normal mode.
   void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }
 
@@ -120,6 +124,11 @@ class HydronicS3 : public Component {
   uint16_t scan_negative_{0};
   uint16_t scan_silent_{0};
   uint8_t scan_service_{0x22};
+  std::vector<uint16_t> poll_dids_;  // non-empty: sweep this list instead of a range
+  size_t poll_index_{0};
+  bool polling_{false};
+  uint32_t poll_interval_ms_{0};
+  uint32_t poll_next_ms_{0};
   uint16_t nrc_count_[256]{};  // negative response codes seen during the scan
   void start_scan_(uint8_t service, uint32_t first, uint32_t last);
   uint32_t single_until_ms_{0};  // single request: back to listen-only after this

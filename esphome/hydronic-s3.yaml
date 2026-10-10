@@ -7,7 +7,6 @@ substitutions:
   can_cs: GPIO12            # COMMU CAN CS on Fire/Basic (M5Stack COMMU examples)
   can_int: GPIO15           # COMMU CAN INT
   can_mode: LISTENONLY      # no ACK, no TX: invisible on the bus
-  pump_pin: GPIO36          # M5GO base Port B, input-only, no internal pull-up: opto needs external pull-up
 
 esphome:
   name: ${name}
@@ -46,7 +45,6 @@ logger:
     light: WARN
     ledc.output: WARN
     lvgl: INFO
-    pulse_meter: INFO
 
 api:
   encryption:
@@ -102,7 +100,8 @@ hydronic_s3:
 
 # No GPIO one_wire/dallas_temp here: its bit-banging locks interrupts on the
 # loop core long enough to block the MCP2515 INT ISR during frame bursts (RX
-# overflow every poll, measured).
+# overflow every poll, measured). No pulse_meter on an unconnected input either:
+# a floating pin fires edge interrupts on that core.
 
 binary_sensor:
   - platform: hydronic_s3
@@ -227,8 +226,7 @@ interval:
                    fc < 0 ? "--" : fc == 0 ? "none" : "flags set", ct);
           set(id(lbl_heater), buf);
 
-          snprintf(buf, sizeof(buf), "Pump %.2f Hz (ref)\nBat %.0f%%%s   %s",
-                   id(pump_rate).state,
+          snprintf(buf, sizeof(buf), "Bat %.0f%%%s   %s",
                    id(battery_level).state,
                    id(battery_full).state ? " full" : id(battery_charging).state ? " chg" : "",
                    id(wifi_ip).state.empty() ? "no wifi" : id(wifi_ip).state.c_str());
@@ -338,19 +336,22 @@ sensor:
     lambda: "return id(heater_can)->queue_high_water();"
     web_server:
       sorting_group_id: group_can
-  - platform: pulse_meter
-    id: pump_rate
-    name: "Metering pump rate (ref)"
-    pin:
-      number: ${pump_pin}
-      mode: INPUT
-    internal_filter: 5ms
-    timeout: 5s
-    unit_of_measurement: "Hz"
-    filters:
-      - multiply: 0.016667        # pulses/min -> Hz
+
+switch:
+  # Sweeps the DIDs known to answer (FEFF, FD00..FD44) every 5 s for correlation.
+  - platform: template
+    name: "Poll DIDs"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
     web_server:
       sorting_group_id: group_heater
+    turn_on_action:
+      - lambda: |-
+          std::vector<uint16_t> dids{0xFEFF};
+          for (uint16_t d = 0xFD00; d <= 0xFD44; d++) dids.push_back(d);
+          id(heater).start_polling(dids, 5000);
+    turn_off_action:
+      - lambda: "id(heater).stop_polling();"
 
 text:
   - platform: template
