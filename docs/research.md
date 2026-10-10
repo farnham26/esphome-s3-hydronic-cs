@@ -298,3 +298,7 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
 - Heating power sensor = fuel × 8615 W per l/h (D6L datasheet 5600 W/0.65 l/h, 1300 W/0.15 l/h; datasheet heat
   flow, not measured). Web: no published pump frequency/stroke volume; manual: technical description Hydronic S3
   Commercial 25.2696.90.0001 (butlertechnik.com copy).
+- Cross-check (user-supplied repair-manual table, Hydronic S3 Economy D4E/D5E, first start at 12–13 V): 7.0 cm³
+  (6.65–7.35) in 86 s; EasyScan fuel test 8.2 cm³ (7.4–9.0) in 80 s. Our D6L warm restart 22:28 (24.6–26 V): FD11
+  counter +4.30e6 in the first 65 s of pumping → ≈5.2 cm³ per 86 s. Confirms nl as counter unit (not stroke-exact:
+  other type, start type, voltage).
