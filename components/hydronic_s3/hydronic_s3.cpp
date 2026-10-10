@@ -19,6 +19,27 @@ static constexpr uint8_t QUIET_AFTER_CHANGES = 16;
 static constexpr uint32_t PERIOD_SETTLE_FRAMES = 10;
 static constexpr float GAP_FACTOR = 1.8f;
 
+// Decoded so far (heater -> controller unless noted), all little-endian:
+//   0x2C4 B0      heater state: 0x03 idle, 0x05 active (heating, control pause and
+//                 after-run after switch-off; others not yet seen)
+//   0x2C4 B1      bit 3: burner run-down (~65-90 s, into control pause or at switch-off)
+//   0x2C4 B4..B5  outlet coolant temperature, 0.1 degC, offset -50 degC
+//                 (holds ~75 degC in regulation, drops at once when the mixer opens)
+//   0x054 B0      controller -> heater: 0x01 heater requested on, 0x00 off
+static constexpr uint32_t ID_COMMAND = 0x054;
+static constexpr uint32_t ID_STATUS = 0x2C4;
+
+const char *HydronicS3::state_name(int state) {
+  switch (state) {
+    case 0x03:
+      return "idle";
+    case 0x05:
+      return "active";
+    default:
+      return nullptr;
+  }
+}
+
 static void hex(char *out, const uint8_t *d, uint8_t len) {
   static const char HX[] = "0123456789ABCDEF";
   for (uint8_t i = 0; i < len; i++) {
@@ -78,11 +99,48 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
         s.changes[b]++;
     }
   }
+  if (!ext && !rtr)
+    this->decode_(can_id, data);
   std::copy(data.begin(), data.begin() + len, s.data);
   s.len = len;
   s.ext = ext;
   s.count++;
   s.last_ms = now;
+}
+
+void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
+  if (can_id == ID_STATUS && data.size() >= 6) {
+    const float temp = ((data[4] | data[5] << 8) - 500) * 0.1f;
+    if (temp != this->outlet_temp_c_) {
+      this->outlet_temp_c_ = temp;
+#ifdef USE_SENSOR
+      if (this->outlet_temperature_ != nullptr)
+        this->outlet_temperature_->publish_state(temp);
+#endif
+    }
+    if (data[0] != this->state_) {
+      this->state_ = data[0];
+      const char *name = state_name(this->state_);
+      ESP_LOGI(TAG, "state 0x%02X (%s)", this->state_, name != nullptr ? name : "unknown");
+#ifdef USE_SENSOR
+      if (this->state_code_ != nullptr)
+        this->state_code_->publish_state(this->state_);
+#endif
+#ifdef USE_TEXT_SENSOR
+      if (this->state_text_ != nullptr) {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "0x%02X", this->state_);
+        this->state_text_->publish_state(name != nullptr ? name : buf);
+      }
+#endif
+    }
+  } else if (can_id == ID_COMMAND && !data.empty() && data[0] != this->on_request_raw_) {
+    this->on_request_raw_ = data[0];
+#ifdef USE_BINARY_SENSOR
+    if (this->on_request_ != nullptr)
+      this->on_request_->publish_state(data[0] == 0x01);
+#endif
+  }
 }
 
 void HydronicS3::dump_ids_() {
