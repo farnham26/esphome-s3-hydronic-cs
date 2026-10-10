@@ -417,6 +417,8 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
       ascii += payload[i] >= 0x20 && payload[i] < 0x7F ? static_cast<char>(payload[i]) : '.';
     }
     text += " '" + ascii + "'";
+    if (payload[0] == 0x62)
+      this->decode_did_(payload[1] << 8 | payload[2], payload.data() + 3, payload.size() - 3);
     this->scan_positive_++;
     this->scan_answered_();
     this->publish_diag_(text);
@@ -470,6 +472,64 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
 #ifdef USE_TEXT_SENSOR
   if (this->fault_codes_text_ != nullptr)
     this->fault_codes_text_->publish_state(text);
+#endif
+}
+
+void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
+  auto u16 = [d](size_t i) { return static_cast<uint16_t>(d[i] << 8 | d[i + 1]); };
+#ifdef USE_SENSOR
+  auto pub = [this](DidSensor which, float value) {
+    if (this->did_sensors_[which] != nullptr)
+      this->did_sensors_[which]->publish_state(value);
+  };
+  switch (did) {
+    case 0xFD01:
+      if (n >= 4) {
+        pub(DID_FLAME_SENSOR_TEMP, u16(0) / 100.0f - 50.0f);
+        pub(DID_INLET_TEMPERATURE, u16(2) / 100.0f - 50.0f);
+      }
+      break;
+    case 0xFD04:
+      if (n >= 2)
+        pub(DID_SUPPLY_VOLTAGE, u16(0) / 10.0f);
+      break;
+    case 0xFD09:
+      if (n >= 2)
+        pub(DID_BLOWER_SPEED, u16(0));
+      break;
+    case 0xFD0A:
+      if (n >= 2)
+        pub(DID_GLOW_PLUG_POWER, u16(0) / 10.0f);
+      break;
+    case 0xFD0C:
+      if (n >= 1)
+        pub(DID_GLOW_PLUG_RAW, d[0]);
+      break;
+    case 0xFD0D:
+      if (n >= 1)
+        pub(DID_METERING_PUMP_RATE, d[0] / 10.0f);
+      break;
+    case 0xFD10:
+      if (n >= 2)
+        pub(DID_OPERATING_PHASE, d[1]);
+      break;
+    case 0xFD11:
+      if (n >= 2)
+        pub(DID_POWER_LEVEL_RAW, d[1]);
+      break;
+    case 0xFD17:
+      for (size_t i = 0; i < 7 && i * 4 + 4 <= n; i++) {
+        const uint32_t minutes = static_cast<uint32_t>(u16(i * 4)) << 16 | u16(i * 4 + 2);
+        pub(static_cast<DidSensor>(DID_HOURS_TOTAL + i), minutes / 60.0f);
+      }
+      break;
+    default:
+      break;
+  }
+#endif
+#ifdef USE_BINARY_SENSOR
+  if (did == 0xFD0F && n >= 1 && this->flame_ != nullptr)
+    this->flame_->publish_state(d[0] & 0x01);
 #endif
 }
 

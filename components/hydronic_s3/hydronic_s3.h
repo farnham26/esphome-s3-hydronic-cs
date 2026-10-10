@@ -33,6 +33,28 @@ struct IdState {
   float period_ms{0};       // smoothed inter-frame interval, at processing time (approximate)
 };
 
+/// Values read by UDS ReadDataByIdentifier (see docs/research.md "DID correlation").
+/// (?) = plausible, not confirmed.
+enum DidSensor : uint8_t {
+  DID_INLET_TEMPERATURE,      // FD01 w2, v/100 - 50 °C
+  DID_FLAME_SENSOR_TEMP,      // FD01 w1
+  DID_SUPPLY_VOLTAGE,         // FD04 0.1 V (?)
+  DID_BLOWER_SPEED,           // FD09 rpm (?)
+  DID_GLOW_PLUG_POWER,        // FD0A 0.1 W (?)
+  DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (?)
+  DID_METERING_PUMP_RATE,     // FD0D 0.1 Hz (?)
+  DID_OPERATING_PHASE,        // FD10 B1: 0x0C start, 0x14 burn, 0x1F run-down, 0x28 pause
+  DID_POWER_LEVEL_RAW,        // FD11 B1, proportional to FD0D (?)
+  DID_HOURS_TOTAL,            // FD17 counters, minutes: total, power bands, pause, altitude
+  DID_HOURS_POWER_0_25,
+  DID_HOURS_POWER_25_50,
+  DID_HOURS_POWER_50_75,
+  DID_HOURS_POWER_75_100,
+  DID_HOURS_PAUSE,
+  DID_HOURS_ALTITUDE,
+  DID_SENSOR_COUNT,
+};
+
 /// Eberspächer Hydronic S3 on CAN (EasyStart protocol, 11-bit, 500 kbit/s).
 /// Listen-only: decodes what is known, and logs new IDs and changing bytes so
 /// the rest can be decoded from logs.
@@ -43,6 +65,7 @@ class HydronicS3 : public Component {
   void set_outlet_temperature_sensor(sensor::Sensor *s) { this->outlet_temperature_ = s; }
   void set_state_code_sensor(sensor::Sensor *s) { this->state_code_ = s; }
   void set_controller_temperature_sensor(sensor::Sensor *s) { this->controller_temperature_ = s; }
+  void set_did_sensor(DidSensor which, sensor::Sensor *s) { this->did_sensors_[which] = s; }
 #endif
 #ifdef USE_TEXT_SENSOR
   void set_state_text_sensor(text_sensor::TextSensor *s) { this->state_text_ = s; }
@@ -53,6 +76,7 @@ class HydronicS3 : public Component {
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
+  void set_flame_binary_sensor(binary_sensor::BinarySensor *s) { this->flame_ = s; }
 #endif
 
   /// Last decoded values; NAN / -1 until received.
@@ -79,6 +103,10 @@ class HydronicS3 : public Component {
   /// go to the diag_response text sensor. Normal mode while polling.
   void start_polling(std::vector<uint16_t> dids, uint32_t interval_ms);
   void stop_polling();
+  /// The DIDs behind the DidSensor values and the flame flag.
+  static std::vector<uint16_t> sensor_dids() {
+    return {0xFD01, 0xFD04, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17};
+  }
   /// Switches the bus controller between listen-only (true) and normal mode.
   void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }
 
@@ -98,6 +126,7 @@ class HydronicS3 : public Component {
   void event_(const char *what, int from, int to);
   void diag_response_(const std::vector<uint8_t> &data);
   void uds_(const std::vector<uint8_t> &payload);
+  void decode_did_(uint16_t did, const uint8_t *d, size_t n);
 
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
@@ -140,6 +169,7 @@ class HydronicS3 : public Component {
   sensor::Sensor *outlet_temperature_{nullptr};
   sensor::Sensor *state_code_{nullptr};
   sensor::Sensor *controller_temperature_{nullptr};
+  sensor::Sensor *did_sensors_[DID_SENSOR_COUNT]{};
 #endif
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *state_text_{nullptr};
@@ -150,6 +180,7 @@ class HydronicS3 : public Component {
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};
+  binary_sensor::BinarySensor *flame_{nullptr};
 #endif
 };
 
