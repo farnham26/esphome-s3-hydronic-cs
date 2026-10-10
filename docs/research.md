@@ -108,3 +108,13 @@ IK1900301 (https://static.nhtsa.gov/odi/tsbs/2026/MC-11031193-0001.pdf):
 - Open: cause of the hold. User reports a DTC in the error memory after failed starts → read it (passive decode
   on `0x73C` is in place: "Heater Fault Codes"). Hypothesis to test: conflict between S+ and the EasyStart's
   active "off" command.
+
+### Root-cause lead: water pump fault P000252 (21:27–21:29, own UDS reads via "Read Fault Codes")
+- Read 0.1 s after wake (before self-test): `P000252 (6C), P000222 (68)` — 0x40 "test not completed this cycle".
+- Read during the start hold (`0x40` flag set): **`P000252 (2F)`** = testFailed + testFailedThisOperationCycle +
+  pending + confirmed; `P000222 (28)` old, not failing. → The hold coincides with an active water-pump fault.
+- OEM remedy (Chart repair instructions): unplug XB8/2 at the pump; if the code changes to P000250 (open) the
+  pump is defective → renew; else check harness / heater output. Also check for external +Ub back-feed onto the
+  pump line (P000252 = "short circuit downstream of +Ub or transistor error").
+- In a hold the heater stays on the bus as long as S+ is on (> 3 min seen) and answers UDS: safe diagnostic
+  window without ignition.
