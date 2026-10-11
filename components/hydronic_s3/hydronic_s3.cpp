@@ -212,13 +212,6 @@ void HydronicS3::expire_stale_() {
       this->fault_text_->publish_state("");
 #endif
   }
-  if (stale(this->controller_ms_)) {
-    this->controller_temp_c_ = NAN;
-#ifdef USE_SENSOR
-    if (this->controller_temperature_ != nullptr)
-      this->controller_temperature_->publish_state(NAN);
-#endif
-  }
   if (stale(this->command_ms_)) {
     this->command_raw_ = -1;
     this->on_request_raw_ = -1;
@@ -299,9 +292,6 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
   if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->controller_data_);
-  // 065 comes rarely (on change, ~30 s): any EasyStart frame keeps its temperature current.
-  if (easystart && !std::isnan(this->controller_temp_c_))
-    this->controller_ms_ = now;
   if (easystart && this->commanding_()) {
     ESP_LOGW(TAG, "EasyStart frame %03" PRIX32 " seen: command stopped", can_id);
     this->event_("cmd backoff", can_id, 0);
@@ -447,16 +437,6 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     }
   } else if (can_id == ID_DIAG_RESPONSE && !data.empty()) {
     this->diag_response_(data);
-  } else if (can_id == ID_CONTROLLER_STATUS && data.size() >= 2) {
-    this->controller_ms_ = millis();
-    const float temp = decode_temperature(data, 0);
-    if (!std::isnan(temp) && temp != this->controller_temp_c_) {
-      this->controller_temp_c_ = temp;
-#ifdef USE_SENSOR
-      if (this->controller_temperature_ != nullptr)
-        this->controller_temperature_->publish_state(temp);
-#endif
-    }
   } else if (can_id == ID_HEARTBEAT && data.size() >= 2) {
     this->heartbeat_ms_ = millis();
     if (data[1] != this->switch_input_raw_) {

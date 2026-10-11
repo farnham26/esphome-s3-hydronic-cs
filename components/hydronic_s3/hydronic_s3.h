@@ -92,7 +92,6 @@ class HydronicS3 : public Component {
 #ifdef USE_SENSOR
   void set_outlet_temperature_sensor(sensor::Sensor *s) { this->outlet_temperature_ = s; }
   void set_state_code_sensor(sensor::Sensor *s) { this->state_code_ = s; }
-  void set_controller_temperature_sensor(sensor::Sensor *s) { this->controller_temperature_ = s; }
   void set_did_sensor(DidSensor which, sensor::Sensor *s) { this->did_sensors_[which] = s; }
 #endif
 #ifdef USE_TEXT_SENSOR
@@ -116,7 +115,6 @@ class HydronicS3 : public Component {
   float outlet_temperature() const { return this->outlet_temp_c_; }
   int state() const { return this->state_; }
   int on_request() const { return this->on_request_raw_; }
-  float controller_temperature() const { return this->controller_temp_c_; }
   /// 0x2C4 B2 while in fault or its ~26 s aftermath, 0 otherwise; -1 until received.
   int fault_code() const { return this->fault_code_; }
   static const char *state_name(int state);
@@ -195,7 +193,6 @@ class HydronicS3 : public Component {
   float outlet_temp_c_{NAN};
   int state_{-1};
   int on_request_raw_{-1};
-  float controller_temp_c_{NAN};
   int command_raw_{-1};       // 0x054 B0 << 8 | B1
   int switch_input_raw_{-1};  // 0x625 B1
   std::vector<uint8_t> isotp_buf_;  // diagnostic response being reassembled
@@ -230,7 +227,7 @@ class HydronicS3 : public Component {
   int phase_{-1};  // FD10 B1, last seen
   float did_inlet_c_{NAN}, did_outlet_c_{NAN};  // FD01, same sweep as FD11 (flow estimate)
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
-  uint32_t status_ms_{0}, controller_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
+  uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};
   bool command_on_{false};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
@@ -275,7 +272,6 @@ class HydronicS3 : public Component {
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
   sensor::Sensor *state_code_{nullptr};
-  sensor::Sensor *controller_temperature_{nullptr};
   sensor::Sensor *did_sensors_[DID_SENSOR_COUNT]{};
 #endif
 #ifdef USE_TEXT_SENSOR
