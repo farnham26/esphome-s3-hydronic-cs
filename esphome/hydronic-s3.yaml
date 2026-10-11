@@ -143,15 +143,18 @@ binary_sensor:
   - platform: hydronic_s3
     on_request:
       name: "Heater On Request"
+      icon: mdi:power
       web_server:
         sorting_group_id: group_heater
     flame:
       id: b_flame
       name: "Flame"
+      icon: mdi:fire
       web_server:
         sorting_group_id: group_heater
     connected:
       name: "Heater Connected"
+      icon: mdi:lan-connect
       web_server:
         sorting_group_id: group_heater
   - id: !extend button_a
@@ -317,6 +320,7 @@ sensor:
   - platform: template
     id: s_can_rec
     name: "CAN RX Error Counter"
+    icon: mdi:alert-outline
     accuracy_decimals: 0
     entity_category: diagnostic
     update_interval: never
@@ -325,6 +329,7 @@ sensor:
   - platform: template
     id: s_can_tec
     name: "CAN TX Error Counter"
+    icon: mdi:alert-outline
     accuracy_decimals: 0
     entity_category: diagnostic
     update_interval: never
@@ -333,6 +338,7 @@ sensor:
   - platform: template
     id: s_can_eflg
     name: "CAN Error Flags"
+    icon: mdi:flag-outline
     accuracy_decimals: 0
     entity_category: diagnostic
     update_interval: never
@@ -341,6 +347,7 @@ sensor:
   - platform: hydronic_s3
     outlet_temperature:
       name: "Outlet Temperature"
+      icon: mdi:thermometer-chevron-up
       filters:
         # The raw value toggles by 0.1 degC several times a second.
         - or:
@@ -350,86 +357,105 @@ sensor:
         sorting_group_id: group_heater
     state_code:
       name: "Heater State Code"
+      icon: mdi:numeric
       entity_category: diagnostic
       web_server:
         sorting_group_id: group_components
     inlet_temperature:
       id: s_inlet
       name: "Inlet Temperature"
+      icon: mdi:thermometer-chevron-down
       web_server:
         sorting_group_id: group_heater
     flame_sensor_temperature:
       name: "Flame Sensor Temperature"
+      icon: mdi:thermometer-high
       web_server:
         sorting_group_id: group_components
     supply_voltage:
       id: s_voltage
       name: "Supply Voltage"
+      icon: mdi:car-battery
       web_server:
         sorting_group_id: group_heater
     blower_speed:
       id: s_blower
       name: "Blower Speed"
+      icon: mdi:fan
       web_server:
         sorting_group_id: group_components
     glow_plug_power:
       id: s_glow
       name: "Glow Plug Power"
+      icon: mdi:lightning-bolt
       web_server:
         sorting_group_id: group_components
     glow_plug_raw:
       name: "Glow Plug Raw"
+      icon: mdi:lightning-bolt-outline
       web_server:
         sorting_group_id: group_components
     metering_pump_rate:
       name: "Metering Pump Rate"
+      icon: mdi:pump
       web_server:
         sorting_group_id: group_components
     operating_phase:
       id: s_phase
       name: "Operating Phase"
+      icon: mdi:progress-clock
       web_server:
         sorting_group_id: group_heater
     fuel_consumption:
       id: s_fuel
       name: "Fuel Consumption"
+      icon: mdi:gas-station
       web_server:
         sorting_group_id: group_heater
     heating_power:
       id: s_power
       name: "Heating Power"
+      icon: mdi:radiator
       web_server:
         sorting_group_id: group_heater
     fuel_total:
       name: "Fuel Total"
+      icon: mdi:gas-station-outline
       web_server:
         sorting_group_id: group_counters
     hours_total:
       name: "Operating Hours"
+      icon: mdi:timer-outline
       web_server:
         sorting_group_id: group_counters
     hours_power_0_25:
       name: "Hours Power 0-25%"
+      icon: mdi:timer-outline
       web_server:
         sorting_group_id: group_counters
     hours_power_25_50:
       name: "Hours Power 25-50%"
+      icon: mdi:timer-outline
       web_server:
         sorting_group_id: group_counters
     hours_power_50_75:
       name: "Hours Power 50-75%"
+      icon: mdi:timer-outline
       web_server:
         sorting_group_id: group_counters
     hours_power_75_100:
       name: "Hours Power 75-100%"
+      icon: mdi:timer-outline
       web_server:
         sorting_group_id: group_counters
     hours_pause:
       name: "Hours Control Pause"
+      icon: mdi:timer-pause-outline
       web_server:
         sorting_group_id: group_counters
     hours_altitude:
       name: "Hours Altitude Mode"
+      icon: mdi:image-filter-hdr
       web_server:
         sorting_group_id: group_counters
     fd08_raw:
@@ -452,10 +478,12 @@ sensor:
         sorting_group_id: group_components
     control_unit_temperature:
       name: "Control Unit Temperature"
+      icon: mdi:chip
       web_server:
         sorting_group_id: group_components
   - platform: template
     name: "CAN Frame Rate"
+    icon: mdi:speedometer
     unit_of_measurement: "fps"
     accuracy_decimals: 0
     update_interval: 5s
@@ -470,6 +498,7 @@ sensor:
       sorting_group_id: group_can
   - platform: template
     name: "CAN RX Overflows"
+    icon: mdi:tray-alert
     entity_category: diagnostic
     accuracy_decimals: 0
     update_interval: 10s
@@ -478,6 +507,7 @@ sensor:
       sorting_group_id: group_can
   - platform: template
     name: "CAN Queue Drops"
+    icon: mdi:tray-remove
     entity_category: diagnostic
     accuracy_decimals: 0
     update_interval: 10s
@@ -486,6 +516,7 @@ sensor:
       sorting_group_id: group_can
   - platform: template
     name: "CAN Queue High Water"
+    icon: mdi:tray-full
     entity_category: diagnostic
     accuracy_decimals: 0
     update_interval: 10s
@@ -611,6 +642,7 @@ button:
       - lambda: "id(heater).abort_command();"
   - platform: template
     name: "Clear Fault Codes"
+    icon: mdi:delete-sweep-outline
     web_server:
       sorting_group_id: group_control
     on_press:
@@ -643,6 +675,7 @@ button:
   # Error-memory readout like the EasyStart's (mode handled by the component).
   - platform: template
     name: "Read Fault Codes"
+    icon: mdi:clipboard-search-outline
     web_server:
       sorting_group_id: group_control
     on_press:
@@ -652,34 +685,42 @@ text_sensor:
   - platform: hydronic_s3
     hardware_version:
       name: "Heater Hardware Version"
+      icon: mdi:chip
       web_server:
         sorting_group_id: group_counters
     software_version:
       name: "Heater Software Version"
+      icon: mdi:application-cog-outline
       web_server:
         sorting_group_id: group_counters
     part_number:
       name: "Heater Part Number"
+      icon: mdi:barcode
       web_server:
         sorting_group_id: group_counters
     serial_number:
       name: "Heater Serial Number"
+      icon: mdi:identifier
       web_server:
         sorting_group_id: group_counters
     state:
       name: "Heater State"
+      icon: mdi:state-machine
       web_server:
         sorting_group_id: group_heater
     fault:
       name: "Heater Fault"
+      icon: mdi:alert-circle-outline
       web_server:
         sorting_group_id: group_heater
     operating_phase_text:
       name: "Operating Phase Text"
+      icon: mdi:progress-clock
       web_server:
         sorting_group_id: group_heater
     fault_codes:
       name: "Heater Fault Codes"
+      icon: mdi:alert-octagon-outline
       web_server:
         sorting_group_id: group_heater
     diag_response:
@@ -688,6 +729,7 @@ text_sensor:
         sorting_group_id: group_debug
     event:
       name: "Heater Event"
+      icon: mdi:timeline-text-outline
       web_server:
         sorting_group_id: group_debug
   - platform: wifi_info
