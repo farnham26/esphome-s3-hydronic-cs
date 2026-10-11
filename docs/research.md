@@ -480,3 +480,10 @@ Sensor selection → "control unit", temperature offset → +3 °C, sent togethe
 - Frames are sent on confirming a setting (`064` within seconds of each change), not only on menu exit.
 - Confirmed sequence (13:54–13:56): CU on + offset +3 → `50 01 01 01`; sensor none → `50 00 01 02`;
   CU on + offset 0 → `32 01 01 03`; CU off → `32 00 01 01`. **B3 = 2-bit change counter 1→2→3→1** (0 after power-up).
+
+## Pump line fix verified (2026-10-11 13:59–14:08): diode + 1.2 kΩ bleeder (heater side), EasyStart present
+Error memory cleared 13:48:55 (baseline 0). S+ series: 5 starts aborted at 4 s + 1 warm-up run.
+- **6 of 6 S+ starts without hold** (before the fix, same setup: 3 of 4 held). Error memory afterwards: **none**
+  (`19 02 FF`).
+- Warm-up run: flame 14:04:15; at minimum power with the mixer closed the heater went into control pause at
+  **outlet 83.1 °C** (phase 14 → 1F, 14:07:36) — regular, not a fault.

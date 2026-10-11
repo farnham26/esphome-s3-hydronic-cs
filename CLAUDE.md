@@ -103,6 +103,14 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    TWAI example compiles. tempcontrol will include the component on TWAI (S+/running lines become CAN). Open:
    zero-loss MCP2515 read in an IRAM ISR (Fire only).
 
+## Uncertain decodes (verify when they show up)
+- `2C4` B0 state names: `00` Booting, `03` Ready, `05` Running are solid; `41`/`C1` "Stopping" seen once (10-10);
+  `0B` "Fault" is an Airtronic assumption, never seen here. Run-down shows under `03` (B1 bit 3).
+- FD10 phases `0A` cold / `0C` warm start: told apart by temperature only; `0F` pre-start check seen once; `C8`
+  Blocked also after P000307 (not pump-specific).
+- FD35 control unit temperature, FD08 blower command, FD0F B2–B5, water flow estimate (coolant cp assumed).
+- Config frames: `063` B0/B1/B3 and `064` B1/B6–B7 confirmed; `05C`/`05F` (`1E` = 30) not a menu setting.
+
 ## Safety
 - Start trials: each aborted start (even at 4 s) costs one fuel pump stroke → after at most 5 aborted starts do one
   run until warm (≥ 5 min after flame) to burn off the fuel. Minimize ignitions on a cold heater (soot).

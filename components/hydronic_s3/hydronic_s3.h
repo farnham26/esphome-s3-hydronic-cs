@@ -180,6 +180,7 @@ class HydronicS3 : public Component {
   void expire_stale_();
   void send_failed_();
   void update_mode_();
+  void publish_state_text_();  // 2C4 state name, "Run-down" for 03 with the run-down bit
   bool set_listen_only_(bool listen_only);
   int8_t listen_only_{-1};  // last mode set through the hook, -1 unknown
 

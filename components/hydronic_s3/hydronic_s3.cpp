@@ -92,19 +92,34 @@ static float decode_temperature(const std::vector<uint8_t> &data, size_t offset)
   return raw >= NOT_AVAILABLE ? NAN : (raw - 500) * 0.1f;
 }
 
+// 2C4 B0, names from observation (uncertain ones in CLAUDE.md).
 const char *HydronicS3::state_name(int state) {
   switch (state) {
     case 0x00:
-      return "init";
+      return "Booting";  // ~200 ms after a wake, temperatures still FE FF
     case 0x03:
-      return "idle";
+      return "Ready";  // idle; also run-down (B1 bit 3) and start hold
     case 0x05:
-      return "active";
+      return "Running";  // request active: start, heating, control pause
+    case 0x41:
+    case 0xC1:
+      return "Stopping";  // briefly at the end of a run (10-10), then 03
     case STATE_FAULT:
-      return "fault";
+      return "Fault (?)";  // Airtronic value, not seen on this heater
     default:
       return nullptr;
   }
+}
+
+void HydronicS3::publish_state_text_() {
+#ifdef USE_TEXT_SENSOR
+  if (this->state_text_ == nullptr)
+    return;
+  const char *name = this->rundown_ && this->state_ == 0x03 ? "Run-down" : state_name(this->state_);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "0x%02X", this->state_ & 0xFF);
+  this->state_text_->publish_state(name != nullptr ? name : buf);
+#endif
 }
 
 // FD10 B1, names from observation: {code, short (display chip), long}.
@@ -356,17 +371,12 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       if (this->state_code_ != nullptr)
         this->state_code_->publish_state(this->state_);
 #endif
-#ifdef USE_TEXT_SENSOR
-      if (this->state_text_ != nullptr) {
-        char buf[8];
-        snprintf(buf, sizeof(buf), "0x%02X", this->state_);
-        this->state_text_->publish_state(name != nullptr ? name : buf);
-      }
-#endif
+      this->publish_state_text_();
     }
     if (static_cast<bool>(data[1] & 0x08) != this->rundown_) {
       this->rundown_ = data[1] & 0x08;
       this->event_("rundown", !this->rundown_, this->rundown_);
+      this->publish_state_text_();
       this->idle_sweeps_ = IDLE_SWEEPS;
       this->update_mode_();
     }
