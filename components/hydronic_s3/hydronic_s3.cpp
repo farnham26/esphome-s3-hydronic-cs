@@ -346,7 +346,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       // As the EasyStart at its power-up: config burst once, when it is absent.
       if (!this->burst_sent_ && this->burst_due_ms_ == 0 && !this->easystart_present_()) {
         this->burst_due_ms_ = millis() + BURST_DELAY_MS;
-        this->burst_round_ = this->burst_index_ = 0;
+        this->burst_round_ = 0;
       }
 #ifdef USE_BINARY_SENSOR
       if (this->connected_ != nullptr)
@@ -585,13 +585,11 @@ void HydronicS3::command_loop_() {
   // Send failures are expected while the bus wakes (no ack yet): no tx_down_ here.
   if (static_cast<int32_t>(now - this->keepalive_next_ms_) >= 0) {
     this->keepalive_next_ms_ = now + KEEPALIVE_PERIOD_MS;
-    this->canbus_->send_data(ID_KEEPALIVE, false,
-                             std::vector<uint8_t>(this->keepalive_data_, this->keepalive_data_ + 8));
+    this->queue_(ID_KEEPALIVE, this->keepalive_data_, 8);
   }
   if (static_cast<int32_t>(now - this->controller_next_ms_) >= 0) {
     this->controller_next_ms_ = now + CONTROLLER_PERIOD_MS;
-    this->canbus_->send_data(ID_CONTROLLER_STATUS, false,
-                             std::vector<uint8_t>(this->controller_data_, this->controller_data_ + 8));
+    this->queue_(ID_CONTROLLER_STATUS, this->controller_data_, 8);
   }
   if (static_cast<int32_t>(now - this->command_next_ms_) < 0)
     return;
@@ -604,13 +602,37 @@ void HydronicS3::command_loop_() {
     ESP_LOGI(TAG, "start retry %u: on", this->start_retries_);
   }
   const uint8_t on = this->command_on_ && ready && this->retry_until_ms_ == 0 ? 0x01 : 0x00;
-  this->canbus_->send_data(ID_COMMAND, false, {on, on, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00});
-  this->canbus_->send_data(0x055, false, {0x10, 0x27, 0, 0, 0, 0, 0, 0});
-  this->canbus_->send_data(0x056, false, {0x10, 0x27, 0, 0, 0, 0, 0, 0});
-  this->canbus_->send_data(0x057, false, {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00});
+  const uint8_t command[8] = {on, on, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  static const uint8_t SETPOINT[8] = {0x10, 0x27, 0, 0, 0, 0, 0, 0};  // 10000, meaning unknown
+  static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  this->queue_(ID_COMMAND, command, 8);
+  this->queue_(0x055, SETPOINT, 8);
+  this->queue_(0x056, SETPOINT, 8);
+  this->queue_(0x057, TAIL, 8);
 }
 
-// One frame per call; a busy TX buffer is retried on the next call.
+static constexpr size_t TX_QUEUE_MAX = 64;
+
+void HydronicS3::queue_(uint16_t id, const uint8_t *data, uint8_t len) {
+  if (this->tx_queue_.size() >= TX_QUEUE_MAX) {
+    ESP_LOGD(TAG, "TX queue full (no ack?), dropping %03X", this->tx_queue_.front().id);
+    this->tx_queue_.pop_front();
+  }
+  TxFrame f{id, len, {}};
+  std::copy(data, data + len, f.data);
+  this->tx_queue_.push_back(f);
+}
+
+void HydronicS3::drain_tx_() {
+  while (!this->tx_queue_.empty()) {
+    const TxFrame &f = this->tx_queue_.front();
+    if (this->canbus_->send_data(f.id, false, std::vector<uint8_t>(f.data, f.data + f.len)) != canbus::ERROR_OK)
+      return;  // buffers busy: next loop
+    this->tx_queue_.pop_front();
+  }
+}
+
+// Queues the burst round by round.
 void HydronicS3::burst_loop_() {
   const uint32_t now = millis();
   if (static_cast<int32_t>(now - this->burst_due_ms_) < 0)
@@ -619,12 +641,8 @@ void HydronicS3::burst_loop_() {
     this->burst_due_ms_ = 0;
     return;
   }
-  const BurstFrame &f = BURST[this->burst_index_];
-  if (this->canbus_->send_data(f.id, false, std::vector<uint8_t>(f.data, f.data + f.len)) != canbus::ERROR_OK)
-    return;
-  if (++this->burst_index_ < sizeof(BURST) / sizeof(BURST[0]))
-    return;
-  this->burst_index_ = 0;
+  for (const BurstFrame &f : BURST)
+    this->queue_(f.id, f.data, f.len);
   if (++this->burst_round_ < BURST_ROUNDS) {
     this->burst_due_ms_ = now + BURST_ROUND_MS;
     return;
@@ -639,6 +657,7 @@ void HydronicS3::loop() {
     this->burst_loop_();
   if (this->commanding_())
     this->command_loop_();
+  this->drain_tx_();
   if (this->poll_wanted_() && !this->scan_active_ && !this->tx_down_ &&
       static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
     // Start a sweep over the list (reuses the scan state machine).
@@ -688,6 +707,8 @@ void HydronicS3::loop() {
     this->publish_diag_(buf);
     return;
   }
+  if (!this->tx_queue_.empty())  // controller frames first: they would fill the TX buffers
+    return;
   const uint16_t id = this->polling_ ? this->sweep_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
   std::vector<uint8_t> req;
   if (this->scan_service_ == 0x21)

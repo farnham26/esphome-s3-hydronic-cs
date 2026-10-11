@@ -3,6 +3,7 @@
 #include <cmath>
 #include <functional>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <vector>
 
@@ -227,8 +228,17 @@ class HydronicS3 : public Component {
   bool burst_sent_{false};      // EasyStart config burst replayed since boot
   uint32_t burst_due_ms_{0};    // 0: not scheduled
   uint8_t burst_round_{0};
-  uint8_t burst_index_{0};
   void burst_loop_();
+  /// Controller frames: the MCP2515 has 3 TX buffers, a full one is retried on the
+  /// next loop instead of dropping the frame.
+  struct TxFrame {
+    uint16_t id;
+    uint8_t len;
+    uint8_t data[8];
+  };
+  std::deque<TxFrame> tx_queue_;
+  void queue_(uint16_t id, const uint8_t *data, uint8_t len);
+  void drain_tx_();
   bool commanding_() const { return this->command_on_ || this->command_until_ms_ != 0; }
   uint8_t idle_sweeps_{0};  // sweeps left while the heater is idle
   bool rundown_{false};     // 2C4 B1 bit 3: burner run-down, also under state 03

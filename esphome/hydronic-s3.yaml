@@ -40,7 +40,7 @@ logger:
   # quieter than the global one.
   level: DEBUG
   logs:
-    canbus: INFO            # logs every frame at DEBUG
+    canbus: ERROR           # DEBUG logs every frame, WARN every busy TX buffer (hydronic_s3 queues)
     i2c.idf: ERROR
     spi_device: ERROR
     display.mipi_spi: WARN
