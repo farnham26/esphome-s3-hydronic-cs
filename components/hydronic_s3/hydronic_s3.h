@@ -169,6 +169,7 @@ class HydronicS3 : public Component {
  protected:
   void on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data);
   void track_id_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data, uint32_t now);
+  static void hex(char *out, const uint8_t *d, uint8_t len);  // "AA BB ..", 3 chars per byte
   bool research_{false};
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
