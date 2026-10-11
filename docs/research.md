@@ -446,3 +446,10 @@ EasyStart reconnected. EasyStart start: no hold. S+ series (EasyStart present): 
 - **P000252 count unchanged (115)**: the diode stops the converter's capacitance from back-feeding (+Ub fault gone).
 - **New: P000250 "open circuit" (count 2 = the two holds)**: with the bleeder behind the diode the heater's output
   sees no load in its off-state check. Next: bleeder on the heater side (diode anode → GND), ~1 kΩ / 2 W.
+
+## Pump line fix, step 2 (2026-10-11 ~12:00): bleeder moved to the heater side
+1.2 kΩ from the diode anode (heater pump output) to GND; diode MBR3060PT; no series resistor/NTC; EasyStart present.
+- Power-up clean; S+ start (aborted at 4 s): no hold; S+ start + 5 min burn (flame +51 s, 3.2 kW): no hold.
+- DTC memory after: P000252 still 115, P000250 still 2 (status 68, not active), **no overcurrent / 25x codes**.
+- Too few starts for a rate yet; next: S+ trials (≤ 5 aborts, then a warm-up run) and a CAN series without the
+  EasyStart.
