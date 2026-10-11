@@ -397,7 +397,7 @@ interval:
           if (phase == nullptr) snprintf(v1, sizeof(v1), phc < 0 ? "--" : "0x%02X", phc);
           set(id(lbl_phase), phase != nullptr ? phase : v1);
           bg(id(chip_phase), c_phase,
-             phc == 0x0C ? 0xA08000 : phc == 0x14 ? 0xC05000 : (phc == 0x1E || phc == 0x1F) ? 0x6A3C9A
+             (phc == 0x0A || phc == 0x0C) ? 0xA08000 : phc == 0x14 ? 0xC05000 : (phc == 0x1E || phc == 0x1F) ? 0x6A3C9A
              : phc == 0x28 ? 0x245C9A : 0x303030);
 
           const bool flame = id(b_flame).has_state() && id(b_flame).state;
@@ -635,6 +635,20 @@ switch:
           id(heater).start_polling(esphome::hydronic_s3::HydronicS3::sensor_dids(), 5000);
     turn_off_action:
       - lambda: "id(heater).stop_polling();"
+  # Research: sends the EasyStart's command set (054-057, 60D). Off sends "off" for
+  # 5 s. Backs off when EasyStart frames appear. Always off after boot.
+  - platform: template
+    id: heater_command
+    name: "Heater Command (research)"
+    # Reads back off when the component backs off (EasyStart frames seen).
+    lambda: "return id(heater).commanding();"
+    restore_mode: ALWAYS_OFF
+    web_server:
+      sorting_group_id: group_debug
+    turn_on_action:
+      - lambda: "id(heater).set_command(true);"
+    turn_off_action:
+      - lambda: "id(heater).set_command(false);"
   # Research: sweeps all answering DIDs FD00..FD44 instead (DID sensors keep updating).
   - platform: template
     id: poll_all_dids

@@ -43,7 +43,7 @@ enum DidSensor : uint8_t {
   DID_GLOW_PLUG_POWER,        // FD0A 0.1 W (?)
   DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (start, run-down afterglow)
   DID_METERING_PUMP_RATE,     // FD0D 0.1 Hz (?)
-  DID_OPERATING_PHASE,        // FD10 B1: 00 off, 0C start, 14 burn, 1E run-down (off), 1F run-down (pause), 28 pause
+  DID_OPERATING_PHASE,        // FD10 B1: 00 off, 0A start (EasyStart), 0C start (S+), 14 burn, 1E run-down (off), 1F run-down (pause), 28 pause
   DID_FUEL_CONSUMPTION,       // FD11 B1 µl/s (= 29.3 µl/stroke x FD0D; 41 at the 0.15 l/h minimum load)
   DID_HEATING_POWER,          // FD11 B1 x D6L datasheet heat flow per fuel (estimate)
   DID_FUEL_TOTAL,             // FD11 B2-5 litres + B6-9 nl (rollover at 1e9 assumed)
@@ -125,6 +125,12 @@ class HydronicS3 : public Component {
   /// go to the diag_response text sensor. Normal mode while polling.
   void start_polling(std::vector<uint16_t> dids, uint32_t interval_ms);
   void stop_polling();
+  /// Research: sends the EasyStart's command set (054-057 every 200 ms, 60D every
+  /// 100 ms, as recorded during an EasyStart run) with "on" (true) or, for 5 s, "off"
+  /// (false). Backs off for good as soon as an EasyStart frame appears: never two
+  /// controllers on the bus. Normal mode meanwhile.
+  void set_command(bool on);
+  bool commanding() const { return this->commanding_(); }
   /// The DIDs behind the DidSensor values and the flame flag.
   static std::vector<uint16_t> sensor_dids() {
     return {0xFD01, 0xFD04, 0xFD08, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17, 0xFD35};
@@ -152,6 +158,8 @@ class HydronicS3 : public Component {
   void expire_stale_();
   void send_failed_();
   void update_mode_();
+  bool set_listen_only_(bool listen_only);
+  int8_t listen_only_{-1};  // last mode set through the hook, -1 unknown
 
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
@@ -199,6 +207,21 @@ class HydronicS3 : public Component {
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
   uint32_t status_ms_{0}, controller_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};
+  bool command_on_{false};
+  uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
+  uint32_t command_next_ms_{0};
+  uint32_t keepalive_next_ms_{0};
+  uint8_t keepalive_data_[8]{0x0D, 0x10, 0x75, 0x7A, 0x02, 0x20, 0x70, 0x00};  // last 60D seen
+  bool commanding_() const { return this->command_on_ || this->command_until_ms_ != 0; }
+  uint8_t idle_sweeps_{0};  // sweeps left while the heater is idle
+  bool rundown_{false};     // 2C4 B1 bit 3: burner run-down, also under state 03
+  /// Polling keeps the heater awake: poll continuously only while it is active, and a
+  /// few sweeps after each state change, so an idle heater can go to sleep.
+  bool poll_wanted_() const {
+    return this->polling_ && this->connected() && (this->idle_sweeps_ != 0 || this->rundown_ ||
+                                                    (this->state_ != 0x00 && this->state_ != 0x03));
+  }
+  void command_loop_();
   bool tx_down_{false};  // a send failed: no polling until a frame proves the bus is back
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
