@@ -73,7 +73,10 @@ static constexpr uint8_t START_HOLD = 0x40;
 static constexpr uint8_t START_RETRIES = 3;
 static constexpr uint32_t RETRY_OFF_MS = 5000;  // "off" between start attempts
 static constexpr uint8_t IDLE_SWEEPS = 2;  // after a state change into idle: values, identification
-static constexpr uint32_t EASYSTART_GONE_MS = 60000;  // no EasyStart frame this long: it is absent
+static constexpr uint32_t EASYSTART_GONE_MS = 60000;
+// Without an EasyStart we ack only while the bus is awake: switching to normal mode on
+// an idle bus woke the heater, which then expected a control unit (P000307).
+static constexpr uint32_t BUS_IDLE_MS = 5000;  // no EasyStart frame this long: it is absent
 // Diagnostics: UDS over ISO-TP, tester 0x7A0 -> heater 0x73C.
 static constexpr uint32_t ID_DIAG_REQUEST = 0x7A0;
 static constexpr uint32_t ID_DIAG_RESPONSE = 0x73C;
@@ -283,6 +286,8 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     this->wake_trace_ = this->research_ ? WAKE_TRACE_FRAMES : 0;
   }
   this->last_frame_ms_ = now;
+  if (this->listen_only_ == 1)  // first frame on a quiet bus: ack it at once (no EasyStart)
+    this->update_mode_();
   if (this->wake_trace_ != 0) {
     this->wake_trace_--;
     hex(buf, data.data(), len);
@@ -502,7 +507,8 @@ bool HydronicS3::easystart_present_() const {
 }
 
 void HydronicS3::update_mode_() {
-  const bool normal = !this->easystart_present_() || this->poll_wanted_() || this->scan_active_ || this->single_until_ms_ != 0 ||
+  const bool bus_awake = this->frames_ != 0 && millis() - this->last_frame_ms_ < BUS_IDLE_MS;
+  const bool normal = (bus_awake && !this->easystart_present_()) || this->poll_wanted_() || this->scan_active_ || this->single_until_ms_ != 0 ||
                       this->commanding_();
   this->set_listen_only_(!normal);
 }

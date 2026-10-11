@@ -522,3 +522,6 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
 - **Config burst replay without commanding → P000307/P000440** (14:35, after a Fire reboot): the burst made the heater
   expect a control unit, silence followed, flag 0x04 after 15 s. Fix: burst only while commanding (first
   `Heater Run` after boot).
+- Root cause (not the burst alone): **switching the MCP2515 to normal mode on an idle bus wakes the heater**
+  (2/2 reboots without EasyStart, 14:35/14:37), which then expects a control unit → flag 0x04 / P000307 after 15 s.
+  Fix: listen-only while the bus is idle; normal at the first received frame (or when we send). Reboot 14:39: no wake.
