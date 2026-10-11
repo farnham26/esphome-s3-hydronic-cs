@@ -39,8 +39,38 @@ static constexpr uint32_t ID_HEARTBEAT = 0x625;
 static constexpr uint32_t ID_KEEPALIVE = 0x60D;  // EasyStart, 100 ms; its retries woke the bus
 static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
-static constexpr uint32_t COMMAND_OFF_MS = 5000;
+static constexpr uint32_t COMMAND_OFF_MS = 15000;  // after idle, as the EasyStart
 static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;
+// EasyStart configuration burst, sent 4x (~150 ms apart) ~2 s after its power-up;
+// recorded 10-11, meaning not decoded. Replayed once per boot when it is absent.
+struct BurstFrame {
+  uint16_t id;
+  uint8_t len;
+  uint8_t data[8];
+};
+static const BurstFrame BURST[] = {
+    {0x05C, 8, {0x1E, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x05D, 8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFF}},
+    {0x05E, 8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x05F, 8, {0x1E, 0x00, 0x1E, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x060, 8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE, 0xFF}},
+    {0x061, 8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x062, 8, {0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0}},
+    {0x063, 8, {0x32, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x064, 8, {0x3C, 0x00, 0x05, 0x00, 0xC8, 0x00, 0xFF, 0x03}},
+    {0x066, 8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x067, 8, {0xBE, 0x3E, 0x27, 0x00, 0x01, 0x1E, 0x00, 0x00}},
+    {0x068, 8, {0xBE, 0x3E, 0x27, 0x00, 0x01, 0x1E, 0x00, 0x00}},
+    {0x069, 8, {0xBE, 0x3E, 0x27, 0x00, 0x01, 0x1E, 0x00, 0x00}},
+    {0x06A, 8, {0xBE, 0x3E, 0x27, 0x00, 0x01, 0x1E, 0x00, 0x00}},
+    {0x06B, 8, {0xBE, 0x3E, 0x27, 0x00, 0x01, 0x1E, 0x00, 0x00}},
+    {0x06C, 8, {0xBE, 0x3E, 0x27, 0x00, 0x01, 0x1E, 0x00, 0x00}},
+    {0x06D, 8, {0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0}},
+    {0x10A, 6, {0x10, 0x00, 0x01, 0x20, 0x10, 0x01}},
+};
+static constexpr uint8_t BURST_ROUNDS = 4;
+static constexpr uint32_t BURST_DELAY_MS = 2000;
+static constexpr uint32_t BURST_ROUND_MS = 150;
 // Start hold (2C4 B2 0x40, P000252 with the pump's DC/DC converter): "off" for a
 // while, then "on" again, as the S+ users did by hand.
 static constexpr uint8_t START_HOLD = 0x40;
@@ -313,6 +343,11 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       ESP_LOGI(TAG, "heater connected");
       this->event_("connected", 0, 1);
       this->poll_next_ms_ = millis();  // mode: by the state change below
+      // As the EasyStart at its power-up: config burst once, when it is absent.
+      if (!this->burst_sent_ && this->burst_due_ms_ == 0 && !this->easystart_present_()) {
+        this->burst_due_ms_ = millis() + BURST_DELAY_MS;
+        this->burst_round_ = this->burst_index_ = 0;
+      }
 #ifdef USE_BINARY_SENSOR
       if (this->connected_ != nullptr)
         this->connected_->publish_state(true);
@@ -575,7 +610,33 @@ void HydronicS3::command_loop_() {
   this->canbus_->send_data(0x057, false, {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00});
 }
 
+// One frame per call; a busy TX buffer is retried on the next call.
+void HydronicS3::burst_loop_() {
+  const uint32_t now = millis();
+  if (static_cast<int32_t>(now - this->burst_due_ms_) < 0)
+    return;
+  if (this->easystart_present_() || !this->connected()) {  // not ours to send (any more)
+    this->burst_due_ms_ = 0;
+    return;
+  }
+  const BurstFrame &f = BURST[this->burst_index_];
+  if (this->canbus_->send_data(f.id, false, std::vector<uint8_t>(f.data, f.data + f.len)) != canbus::ERROR_OK)
+    return;
+  if (++this->burst_index_ < sizeof(BURST) / sizeof(BURST[0]))
+    return;
+  this->burst_index_ = 0;
+  if (++this->burst_round_ < BURST_ROUNDS) {
+    this->burst_due_ms_ = now + BURST_ROUND_MS;
+    return;
+  }
+  this->burst_due_ms_ = 0;
+  this->burst_sent_ = true;
+  ESP_LOGI(TAG, "config burst sent");
+}
+
 void HydronicS3::loop() {
+  if (this->burst_due_ms_ != 0)
+    this->burst_loop_();
   if (this->commanding_())
     this->command_loop_();
   if (this->poll_wanted_() && !this->scan_active_ && !this->tx_down_ &&
