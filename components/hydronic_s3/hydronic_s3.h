@@ -125,12 +125,13 @@ class HydronicS3 : public Component {
   /// go to the diag_response text sensor. Normal mode while polling.
   void start_polling(std::vector<uint16_t> dids, uint32_t interval_ms);
   void stop_polling();
-  /// Research: sends the EasyStart's command set (054-057 every 200 ms, 60D every
+  /// Start/stop: sends the EasyStart's command set (054-057 every 200 ms, 60D every
   /// 100 ms, as recorded during an EasyStart run) with "on" (true) or, for 5 s, "off"
   /// (false). Backs off for good as soon as an EasyStart frame appears: never two
   /// controllers on the bus. Normal mode meanwhile.
   void set_command(bool on);
-  bool commanding() const { return this->commanding_(); }
+  /// Start requested and not backed off.
+  bool command_on() const { return this->command_on_; }
   /// The DIDs behind the DidSensor values and the flame flag.
   static std::vector<uint16_t> sensor_dids() {
     return {0xFD01, 0xFD04, 0xFD08, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17, 0xFD35};
