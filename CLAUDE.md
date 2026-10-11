@@ -84,8 +84,8 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
    whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
 4. **P000307** (CAN communication error control unit, new since our work, count 1, stored): raised when a controller
-   that commanded the heater goes silent mid-cycle (our 5 s off tail during run-down, fixed). Never OTA/reboot the
-   Fire while commanding or during run-down. Delete: our `14 FF FF FF` is refused (NRC 7F, also in session 03) →
+   that commanded the heater goes silent mid-cycle (our 5 s off tail during run-down, fixed). An OTA/reboot while
+   commanding is accepted to raise it (expected "CAN miss"). Delete: our `14 FF FF FF` is refused (NRC 7F, also in session 03) →
    sniff the EasyStart's "delete error memory" (7A0/73C) and replicate it. Same for P000440.
 5. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
 6. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
