@@ -389,7 +389,8 @@ void HydronicS3::event_(const char *what, int from, int to) {
 
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   if (can_id == ID_STATUS && data.size() >= 6) {
-    if (this->status_ms_ == 0) {
+    const bool woke = this->status_ms_ == 0;
+    if (woke) {
       ESP_LOGI(TAG, "heater connected");
       this->event_("connected", 0, 1);
       this->poll_next_ms_ = millis();  // mode: by the state change below
@@ -400,13 +401,14 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
         this->command_next_ms_ = millis();
         this->update_mode_();
       }
-      this->schedule_burst_();
 #ifdef USE_BINARY_SENSOR
       if (this->connected_ != nullptr)
         this->connected_->publish_state(true);
 #endif
     }
     this->status_ms_ = millis();
+    if (woke && this->command_on_)  // our run woke the heater; needs connected(), i.e. status_ms_
+      this->schedule_burst_();
     const float temp = decode_temperature(data, 4);
     if (!std::isnan(temp) && temp != this->outlet_temp_c_) {
       this->outlet_temp_c_ = temp;

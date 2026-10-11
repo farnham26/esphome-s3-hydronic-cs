@@ -587,3 +587,8 @@ Steps: 10:00 → Thu → 17:54 → Sun: `10 02 40 2A` → `13 03 9A 2A` → `13 
   (17:25:15, 0.3 s). Unclear whether S+ "on" blocks the CAN wake or only S+ at power-up does. 16:59 burn = S+.
 - Firmware timer verified: timer 1 Sun 17:14 Fan → `Heater Run` on at 17:14:00.5, mode set (heater then
   blocked in `C8` after the EasyStart session, cleared by a power cycle).
+- `05C`/`05F` = 30: the EasyStart Pro has no default-operating-time setting (it asks for the duration at every
+  start; 30 is preselected) → likely that preset, per heater (pairs `05C`–`05E` / `05F`–`061`, `062` / `06D`,
+  `067`–`069` / `06A`–`06C`: heater 1 / 2, only the heater-1 copies changed in the menu).
+- Burst on wake fixed 17:4x: a run that woke the heater skipped the burst (`connected()` still false at the
+  first `2C4`); seen at the 17:38 timer start.
