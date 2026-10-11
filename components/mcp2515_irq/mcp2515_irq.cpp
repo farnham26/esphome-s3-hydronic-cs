@@ -551,6 +551,7 @@ canbus::Error MCP2515::send_message(struct canbus::CanFrame *frame) {
   TXBn tx_buffers[N_TXBUFFERS] = {TXB0, TXB1, TXB2};
   canbus::Error rc = canbus::ERROR_ALLTXBUSY;
 
+  uint8_t failed = 0;
   for (auto &tx_buffer : tx_buffers) {
     const struct TxBnRegs *txbuf = &TXB[tx_buffer];
     uint8_t ctrlval = read_register_(txbuf->CTRL);
@@ -558,6 +559,16 @@ canbus::Error MCP2515::send_message(struct canbus::CanFrame *frame) {
       rc = send_message_(tx_buffer, frame);
       break;
     }
+    if (ctrlval & TXB_TXERR)
+      failed |= 1 << tx_buffer;
+  }
+  // All buffers retrying without an ack (bus disconnected, other nodes unpowered):
+  // drop those frames, else they go out stale whenever the bus comes back.
+  if (rc == canbus::ERROR_ALLTXBUSY && failed != 0) {
+    for (auto &tx_buffer : tx_buffers)
+      if (failed & (1 << tx_buffer))
+        modify_register_(TXB[tx_buffer].CTRL, TXB_TXREQ, 0);
+    ESP_LOGW(TAG, "TX aborted (no ack), buffers %02X", failed);
   }
 
   if (this->spi_mutex_ != nullptr)
