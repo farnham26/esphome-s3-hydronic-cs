@@ -130,6 +130,10 @@ class HydronicS3 : public Component {
   /// (false). Backs off for good as soon as an EasyStart frame appears: never two
   /// controllers on the bus. Normal mode meanwhile.
   void set_command(bool on);
+  /// "On" stops (with "off") unless set_command(true) renews it within this time.
+  void set_command_lease(uint32_t ms) { this->command_lease_ms_ = ms; }
+  /// Research: stops sending at once, without "off" (controller loss).
+  void abort_command();
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
   /// The DIDs behind the DidSensor values and the flame flag.
@@ -211,6 +215,8 @@ class HydronicS3 : public Component {
   bool command_on_{false};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
+  uint32_t command_lease_ms_{30 * 60 * 1000};
+  uint32_t command_deadline_ms_{0};
   uint32_t keepalive_next_ms_{0};
   uint8_t keepalive_data_[8]{0x0D, 0x10, 0x75, 0x7A, 0x02, 0x20, 0x70, 0x00};  // last 60D seen
   bool commanding_() const { return this->command_on_ || this->command_until_ms_ != 0; }

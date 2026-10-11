@@ -18,6 +18,11 @@ esphome:
         - lambda: |-
             id(heater).set_listen_only_hook([](bool listen_only) { return id(heater_can)->set_listen_only(listen_only); });
         - switch.turn_on: poll_dids
+    - priority: -100
+      then:
+        - lambda: |-
+            if (!std::isnan(id(heater_lease).state))
+              id(heater).set_command_lease(id(heater_lease).state * 60000);
 
 packages:
   board: !include boards/m5stack-fire.yaml
@@ -684,6 +689,21 @@ text:
       sorting_group_id: group_debug
 
 number:
+  # Heater switch fail-safe: "on" ends unless renewed (turn_on again) within this time.
+  - platform: template
+    id: heater_lease
+    name: "Heater Lease"
+    unit_of_measurement: min
+    min_value: 1
+    max_value: 600
+    step: 1
+    initial_value: 30
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: group_heater
+    set_action:
+      - lambda: "id(heater).set_command_lease(x * 60000);"
   # DID scan range (decimal in the UI, 0..65535).
   - platform: template
     id: did_from
@@ -711,6 +731,19 @@ number:
       sorting_group_id: group_debug
 
 button:
+  # Research: controller loss, stops sending without "off".
+  - platform: template
+    name: "Heater Abort (silent)"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).abort_command();"
+  - platform: template
+    name: "Clear Fault Codes"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: 'id(heater).send_uds_request("14 FF FF FF");'
   - platform: template
     name: "Send UDS Request"
     web_server:
@@ -743,9 +776,7 @@ button:
     web_server:
       sorting_group_id: group_heater
     on_press:
-      - lambda: |-
-          if (id(heater_can)->set_listen_only(false))
-            id(heater).request_fault_codes(0x08);
+      - lambda: "id(heater).request_fault_codes(0x08);"
       - delay: 3s
       - lambda: "id(heater_can)->set_listen_only(true);"
 

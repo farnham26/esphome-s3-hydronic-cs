@@ -253,6 +253,9 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
                                   can_id == ID_KEEPALIVE);
   if (easystart && can_id == ID_KEEPALIVE && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
+  // 065 comes rarely (on change, ~30 s): any EasyStart frame keeps its temperature current.
+  if (easystart && !std::isnan(this->controller_temp_c_))
+    this->controller_ms_ = now;
   if (easystart && this->commanding_()) {
     ESP_LOGW(TAG, "EasyStart frame %03" PRIX32 " seen: command stopped", can_id);
     this->event_("cmd backoff", can_id, 0);
@@ -463,6 +466,12 @@ void HydronicS3::update_mode_() {
 void HydronicS3::set_command(bool on) {
   if (!this->listen_only_hook_)
     return;
+  if (on)
+    this->command_deadline_ms_ = millis() + this->command_lease_ms_;
+  if (on && this->command_on_) {
+    ESP_LOGD(TAG, "command lease renewed");
+    return;
+  }
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on);
   this->command_on_ = on;
@@ -471,8 +480,20 @@ void HydronicS3::set_command(bool on) {
   this->update_mode_();
 }
 
+void HydronicS3::abort_command() {
+  ESP_LOGW(TAG, "command aborted silently (research)");
+  this->event_("cmd abort", this->command_on_, 0);
+  this->command_on_ = false;
+  this->command_until_ms_ = 0;
+  this->update_mode_();
+}
+
 void HydronicS3::command_loop_() {
   const uint32_t now = millis();
+  if (this->command_on_ && static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
+    ESP_LOGW(TAG, "command lease expired: off");
+    this->set_command(false);
+  }
   if (!this->command_on_ && static_cast<int32_t>(now - this->command_until_ms_) >= 0) {
     this->command_until_ms_ = 0;
     this->update_mode_();
@@ -598,6 +619,9 @@ void HydronicS3::publish_diag_(const std::string &text) {
 }
 
 void HydronicS3::request_fault_codes(uint8_t status_mask) {
+  if (!this->listen_only_hook_ || !this->set_listen_only_(false))
+    return;
+  this->single_until_ms_ = millis() + 3000;  // answer window, then back to listen-only
   this->diag_requested_ = true;
   const std::vector<uint8_t> req{0x03, 0x19, 0x02, status_mask, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
   const canbus::Error err = this->canbus_->send_data(ID_DIAG_REQUEST, false, req);
