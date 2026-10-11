@@ -76,7 +76,7 @@ EasyStart protocol, 11-bit, 500 kbit/s; **no 29-bit / J1939 traffic seen**. IDs 
 | `2C4` B0 | `03` idle (also seen during residual heat), `05` active (heating, control pause, after-run), `41`→`C1`→`03` end-of-run, `00` with `FE FF` fillers = one-cycle re-init | partly |
 | `2C4` B1 bit 3 | burner run-down (~65–90 s), into control pause or at switch-off | 3 observations |
 | `054` B0 / B1 | B0 `01` on / `00` off; B1 mode: `01` heat, `03` residual heat | consistent |
-| `625` B1 | `10` while heater active, `00` idle | consistent |
+| `625` B1 | `10` while awake (also with S+ off after power-up), `00` before sleep | revised 10-11 |
 
 Not in cyclic traffic: power level, pump rate, inlet temp, glow plug, flame (glow/ignition/restart from
 pause change no byte). S+ (switch input) status bit: not identified yet (test was confounded).
@@ -343,3 +343,33 @@ Candidate layout after status: record 01, occurrence count (0x69 = 105 / 6), ope
   FD10 B0 01→00 at switch-off (request flag?).
 - Glow plug after every flame-off (run-down 0x1E/0x1F): ~89→74 W (FD0C 0x36→0x2D) for ~45 s; 0 while burning.
 - Counters: FD1E w2 = starts (+1 per start; 3416), FD06 = +1 at every start and every burner stop.
+
+## Power-up wake (2026-10-11 09:30, heater supply on, S+ relay off, EasyStart idle)
+Wake trace (first frames after silence, Fire listen-only until `2C4`):
+- +0 ms `625` `25 00 D8 CD C7 BB EC 01`, +6 ms `2C4` boot (`00`, `FE FF`), +34–64 ms `2C5` `2C6` `60D`,
+  +76–121 ms EasyStart `054` (`00 00` off) `055` `056` `057`, +143 ms `065`. EasyStart is powered with the heater.
+- +213 ms `2C4` state `03`; **+357 ms `625` B1 `00 → 10`, B2 `D8 → D9` with S+ off** → B1 `10` is not the
+  S+ request (earlier hypothesis wrong); likely "awake/active" of the `625` sender. +2 s init burst `05C`–`10A`.
+- UDS answers from +209 ms (polling during boot works). No start, no flags, phase 0.
+
+## Bus sleep and wake-up (2026-10-11)
+- **Our UDS polling keeps the heater awake**: `625` B1 `10` while requests come; 0.7 s after polling stops
+  B1 → `00`, ~2 s later the bus is silent (heater and EasyStart asleep). → poll only while the heater is active
+  (`2C4` state ≠ 00/03 or B1 bit 3 run-down), plus 2 sweeps after each state change; listen-only otherwise.
+- **EasyStart wake-up = CAN**: it sends `60D` (its 100 ms keep-alive) unacked; the MCP2515 sees the retries
+  every ~11 ms for ~250 ms until the heater's transceiver wakes and acks (heater `625`/`2C4` boot follows).
+- **The EasyStart wakes on bus activity too**: our own `60D`/`054` (research command, bus asleep) woke it within
+  30 ms; it sent `054 00 00` (off). → a third-party controller must replace the EasyStart (disconnect it or
+  drive it through its own interface), never join it. Component backs off on any `054`–`057`, `065`, `60D`.
+
+## EasyStart start (09:32, from sleep, S+ off) and 10 min run
+- `054` `00 00 → 01 01` 0.4 s after the heater boot, `625` B1 `10` at +1.4 s, `2C4` `03 → 05` at +1.6 s.
+  **No start hold** (S+ starts 10-10: held at +1.7 s, `2C4` B2 `40`).
+- Phases: **`0A` start (EasyStart)** with glow ~94 W, blower 0 → flame at +64 s (glow on, blower 2643 rpm,
+  pump 2.4 Hz, 0.25 l/h) → `14` burn at +2 min (glow off). S+ starts used `0C`.
+- **Run duration is not on the bus**: `054`–`057` constant `01 01 …` for 10 min, then `054 00 00` exactly at
+  10:00.0. Timer is in the EasyStart. Config burst `05C`–`10A` (4× at power-up only, unchanged at the start):
+  `05C`/`05F` `1E 00 1E 00` = 30 (EasyStart default heating time 30 min?), no `0A`. Open: heater-side max run
+  time (hold `054` on > 30 min with the EasyStart disconnected).
+- Switch-off: `054 → 00 00`, `2C4` `05 → 03` with B1 `08` (run-down) at once, flame off, afterglow ~90 W,
+  phase `1E`; run-down ends after 95 s (`2C4` B1 → `00`, phase `00`).
