@@ -79,7 +79,7 @@ web_server:
       name: "Heater Control"
       sorting_weight: 5
     - id: group_heater
-      name: "Heater"
+      name: "Heater status"
       sorting_weight: 10
     - id: group_components
       name: "Components"
