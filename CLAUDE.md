@@ -70,9 +70,9 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-11 ~18:40)
-- EasyStart **disconnected** (to be retired for the final wiring). Device firmware = HEAD
-  (flashed ~18:20). WiFi reachable, log level INFO (runtime "Log Level" select for DEBUG).
+## Session state (2026-10-11 ~19:45)
+- EasyStart **disconnected** (to be retired for the final wiring). Device firmware = 6793c12
+  (flashed ~19:38). Heater asleep, all pushed. WiFi reachable, log level INFO (runtime "Log Level" select for DEBUG).
 - Own control without EasyStart solid: Heat, Fan, Residual heat; CAN wake + start from sleep (0.3 s).
 - Pump line fix (Schottky MBR3060PT + 1.2 kΩ bleeder heater side): **no start hold since** (flag `0x40`).
 - DTC clear in firmware (`clear_dtc()`, SecurityAccess key via `set_security_provider()`, key not in repo).
@@ -84,6 +84,10 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
   (broadcasts, FD00–FD44, FEFF) → source inferred from FD10 B0; "Request Source" / "Heater Request" entities;
   **Heater Run "on" refused while S+**, Heater Mode shows read-only "S+" (verified 18:31). S+ held on at power-up
   = misuse (blocked `C8`, CAN wake fails) — not pursued.
+- **FEFF B21 = water pump current, B19 = fuel pump current** (10 mA; pump 0.78 A vs 0.70 ± 0.1 A external meter,
+  ~18 W) → sensors; no blower current (BLDC). **Residual heat needs warm coolant** (65 °C ok, 47 °C refused →
+  state `41`/`C1` "Residual off", phases `DD`/`DE`). Our `10A` verified as sent (log); heater use not observable.
+- Next session: CAN heat run > 30 min (heater cut-off?) + ESP reboot mid-burn (controller loss).
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
