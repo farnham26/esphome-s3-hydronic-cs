@@ -91,9 +91,10 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 4. **P000307** (CAN communication error control unit): raised when a controller goes silent mid-cycle (fixed:
    "off" until idle + 15 s; OTA during a CAN run accepted to raise it). Error memory cleared 10-11 13:48 via the
    EasyStart workshop menu (clearing is left to that menu).
-5. Vehicle blower relay: on a cold start the heater switches the fan relay ~1 min later (loop warm). Not in the
-   12 polled DIDs nor 2C4/2C5/2C6/625 (12:16 run checked). Next cold start: "Poll All DIDs" on, user notes the click
-   time → find the bit. Fallback: GPIO on the relay line.
+5. Done 10-11 afternoon: pump fix verified (6/6 S+ starts, memory empty); EasyStart modes heat/fan/residual
+   (`054` B1 01/02/03, state 05/21/81, phase 14/D2/DC) → "Heater Mode" select; vehicle blower relay = FEFF B17
+   bit 3 ("Vehicle Fan"); config frames `063`, `064`, timers `067`–`069` decoded (docs/research.md). Open there:
+   `05C`/`05F`, `062`/`06D`, `06A`–`06C`, `10A`, timer B0 — not reachable from the menu.
 6. Open DIDs: water pump power (FD08 is the blower), FD0F B2–B5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
 7. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
