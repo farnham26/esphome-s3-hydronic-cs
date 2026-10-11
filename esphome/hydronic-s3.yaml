@@ -766,7 +766,7 @@ number:
 button:
   # Research: controller loss, stops sending without "off".
   - platform: template
-    name: "Heater Abort (silent)"
+    name: "Heater Abort (silent, raises P000307)"
     web_server:
       sorting_group_id: group_debug
     on_press:

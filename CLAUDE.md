@@ -83,14 +83,18 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 3. Start/stop by us ("Heater" switch, REST `/switch/Heater%20Run/turn_on|turn_off` (watchdog "Heater Run Watchdog", 0 = indefinite), API `heater_start|stop`) needs the
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
    whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
-4. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
-5. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
+4. **P000307** (CAN communication error control unit, new since our work, count 1, stored): raised when a controller
+   that commanded the heater goes silent mid-cycle (our 5 s off tail during run-down, fixed). Never OTA/reboot the
+   Fire while commanding or during run-down. Delete: our `14 FF FF FF` is refused (NRC 7F, also in session 03) →
+   sniff the EasyStart's "delete error memory" (7A0/73C) and replicate it. Same for P000440.
+5. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
+6. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
    real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
-6. Low prio: README for humans with screenshots (web UI, LVGL screen), GPLv3 `LICENSE`, then push to `origin`
+7. Low prio: README for humans with screenshots (web UI, LVGL screen), GPLv3 `LICENSE`, then push to `origin`
    (github.com/farnham26/esphome-s3-hydronic-cs, GPLv3). Before pushing: review tracked files for personal data
    (IPs, hostnames in CLAUDE.md/docs).
-7. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
+8. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
