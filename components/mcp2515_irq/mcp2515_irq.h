@@ -92,7 +92,7 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   uint32_t queue_high_water() const { return this->queue_high_water_; }
   uint32_t frames_read() const { return this->frames_read_; }
   /// Snapshot of the controller state, for diagnosing a stalled reader or a faulty bus.
-  void read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low);
+  void read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, uint8_t &tec, bool &int_low);
   /// Worst INT-edge-to-reader-wake latency and drain duration since the last call, in us.
   /// Switches between listen-only (no ACK, no TX) and normal mode at runtime,
   /// e.g. for a diagnostic request. Returns false if the controller refused.

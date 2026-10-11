@@ -40,7 +40,8 @@ static constexpr uint32_t ID_KEEPALIVE = 0x60D;  // EasyStart, 100 ms; its retri
 static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
 static constexpr uint32_t COMMAND_OFF_MS = 5000;
-static constexpr uint8_t IDLE_SWEEPS = 2;  // after a state change into idle: values, identification
+static constexpr uint8_t IDLE_SWEEPS = 2;
+static constexpr uint32_t EASYSTART_GONE_MS = 60000;  // after a state change into idle: values, identification
 // Diagnostics: UDS over ISO-TP, tester 0x7A0 -> heater 0x73C.
 static constexpr uint32_t ID_DIAG_REQUEST = 0x7A0;
 static constexpr uint32_t ID_DIAG_RESPONSE = 0x73C;
@@ -108,7 +109,10 @@ void HydronicS3::setup() {
     this->on_frame_(can_id, ext, rtr, data);
   });
   this->set_interval("dump", DUMP_INTERVAL_MS, [this]() { this->dump_ids_(); });
-  this->set_interval("stale", 1000, [this]() { this->expire_stale_(); });
+  this->set_interval("stale", 1000, [this]() {
+    this->expire_stale_();
+    this->update_mode_();  // EasyStart gone: back to acking (mode changes only)
+  });
 #ifdef USE_BINARY_SENSOR
   if (this->connected_ != nullptr)
     this->connected_->publish_state(false);
@@ -251,6 +255,14 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   // and stop commanding at once when it is on the bus.
   const bool easystart = !ext && ((can_id >= ID_COMMAND && can_id <= 0x057) || can_id == ID_CONTROLLER_STATUS ||
                                   can_id == ID_KEEPALIVE);
+  if (easystart) {
+    const bool was_present = this->easystart_present_();
+    this->easystart_ms_ = now;
+    if (!was_present) {
+      ESP_LOGI(TAG, "EasyStart present");
+      this->update_mode_();
+    }
+  }
   if (easystart && can_id == ID_KEEPALIVE && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
   // 065 comes rarely (on change, ~30 s): any EasyStart frame keeps its temperature current.
@@ -457,8 +469,12 @@ bool HydronicS3::set_listen_only_(bool listen_only) {
   return true;
 }
 
+bool HydronicS3::easystart_present_() const {
+  return this->easystart_ms_ != 0 && millis() - this->easystart_ms_ < EASYSTART_GONE_MS;
+}
+
 void HydronicS3::update_mode_() {
-  const bool normal = this->poll_wanted_() || this->scan_active_ || this->single_until_ms_ != 0 ||
+  const bool normal = !this->easystart_present_() || this->poll_wanted_() || this->scan_active_ || this->single_until_ms_ != 0 ||
                       this->commanding_();
   this->set_listen_only_(!normal);
 }

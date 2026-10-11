@@ -476,19 +476,47 @@ interval:
   - interval: 10s
     then:
       - lambda: |-
-          uint8_t intf, eflg, rec;
+          uint8_t intf, eflg, rec, tec;
           bool int_low;
           auto *can = id(heater_can);
-          can->read_diag(intf, eflg, rec, int_low);
+          can->read_diag(intf, eflg, rec, tec, int_low);
+          id(s_can_rec).publish_state(rec);
+          id(s_can_tec).publish_state(tec);
+          id(s_can_eflg).publish_state(eflg);
           can->log_overflow_trace();
           uint32_t wake_us, drain_us, frame_us;
           can->take_latency_max(wake_us, drain_us, frame_us);
-          ESP_LOGI("can_diag", "read %u processed %u ovf %u drop %u qmax %u | wake max %u us frame max %u us drain max %u us | INT %s CANINTF %02X EFLG %02X REC %u",
+          ESP_LOGI("can_diag", "read %u processed %u ovf %u drop %u qmax %u | wake max %u us frame max %u us drain max %u us | INT %s CANINTF %02X EFLG %02X REC %u TEC %u",
                    (unsigned) can->frames_read(), (unsigned) id(heater).frames(), (unsigned) can->rx_overflows(),
                    (unsigned) can->queue_drops(), (unsigned) can->queue_high_water(), (unsigned) wake_us,
-                   (unsigned) frame_us, (unsigned) drain_us, int_low ? "LOW" : "high", intf, eflg, rec);
+                   (unsigned) frame_us, (unsigned) drain_us, int_low ? "LOW" : "high", intf, eflg, rec, tec);
 
 sensor:
+  # MCP2515 error counters (CAN error confinement) and EFLG, from the 10 s diag.
+  - platform: template
+    id: s_can_rec
+    name: "CAN RX Error Counter"
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+    web_server:
+      sorting_group_id: group_can
+  - platform: template
+    id: s_can_tec
+    name: "CAN TX Error Counter"
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+    web_server:
+      sorting_group_id: group_can
+  - platform: template
+    id: s_can_eflg
+    name: "CAN Error Flags"
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
+    web_server:
+      sorting_group_id: group_can
   - platform: hydronic_s3
     outlet_temperature:
       name: "Outlet Temperature"

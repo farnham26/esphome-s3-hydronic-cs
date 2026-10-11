@@ -193,12 +193,13 @@ bool MCP2515::set_listen_only(bool listen_only) {
   return ok;
 }
 
-void MCP2515::read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, bool &int_low) {
+void MCP2515::read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, uint8_t &tec, bool &int_low) {
   if (this->spi_mutex_ != nullptr)
     xSemaphoreTake(this->spi_mutex_, portMAX_DELAY);
   intf = this->read_register_(MCP_CANINTF);
   eflg = this->read_register_(MCP_EFLG);
   rec = this->read_register_(MCP_REC);
+  tec = this->read_register_(MCP_TEC);
   if (this->spi_mutex_ != nullptr)
     xSemaphoreGive(this->spi_mutex_);
   int_low = this->interrupt_pin_ != nullptr && !this->interrupt_pin_->digital_read();

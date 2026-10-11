@@ -229,6 +229,10 @@ class HydronicS3 : public Component {
                                                     (this->state_ != 0x00 && this->state_ != 0x03));
   }
   void command_loop_();
+  uint32_t easystart_ms_{0};  // last EasyStart frame, 0: none
+  /// Without the EasyStart nobody else acks the heater's frames (it would retry its
+  /// first frame forever): listen-only only while an EasyStart was seen recently.
+  bool easystart_present_() const;
   bool tx_down_{false};  // a send failed: no polling until a frame proves the bus is back
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
