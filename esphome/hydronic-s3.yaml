@@ -27,6 +27,7 @@ esphome:
 packages:
   board: !include boards/m5stack-fire.yaml
   ui: !include ui/heater-ui.yaml
+  research: !include research.yaml   # protocol research tools; drop for production
 
 external_components:
   # Relative to this config. mcp2515_irq and mipi_spi are patched forks of the
@@ -133,7 +134,6 @@ canbus:
 hydronic_s3:
   id: heater
   canbus_id: heater_can
-  research: true          # ID table, change log, wake trace
 
 
 # No GPIO one_wire/dallas_temp here: its bit-banging locks interrupts on the
@@ -391,11 +391,6 @@ sensor:
       icon: mdi:lightning-bolt
       web_server:
         sorting_group_id: group_components
-    glow_plug_raw:
-      name: "Glow Plug Raw"
-      icon: mdi:lightning-bolt-outline
-      web_server:
-        sorting_group_id: group_components
     metering_pump_rate:
       name: "Metering Pump Rate"
       icon: mdi:pump
@@ -459,14 +454,6 @@ sensor:
       icon: mdi:image-filter-hdr
       web_server:
         sorting_group_id: group_counters
-    fd08_raw:
-      name: "FD08 Raw"
-      web_server:
-        sorting_group_id: group_debug
-    fd35_raw:
-      name: "FD35 Raw"
-      web_server:
-        sorting_group_id: group_debug
     start_step:
       name: "Start Step"
       icon: mdi:stairs-up
@@ -559,34 +546,6 @@ switch:
       - lambda: "id(heater).set_command(true);"
     turn_off_action:
       - lambda: "id(heater).set_command(false);"
-  # Research: sweeps all answering DIDs FD00..FD44 instead (DID sensors keep updating).
-  - platform: template
-    id: poll_all_dids
-    name: "Poll All DIDs"
-    optimistic: true
-    restore_mode: ALWAYS_OFF
-    web_server:
-      sorting_group_id: group_debug
-    turn_on_action:
-      - switch.turn_off: poll_dids
-      - lambda: |-
-          std::vector<uint16_t> dids;
-          for (uint16_t d = 0xFD00; d <= 0xFD44; d++) dids.push_back(d);
-          id(heater).start_polling(dids, 5000);
-    turn_off_action:
-      - lambda: "id(heater).stop_polling();"
-      - switch.turn_on: poll_dids
-
-text:
-  - platform: template
-    id: uds_request
-    name: "UDS Request"
-    entity_category: config
-    mode: text
-    optimistic: true
-    initial_value: "19 02 08"
-    web_server:
-      sorting_group_id: group_debug
 
 select:
   - platform: logger
@@ -612,40 +571,7 @@ number:
       sorting_group_id: group_control
     set_action:
       - lambda: "id(heater).set_command_lease(x * 60000);"
-  # DID scan range (decimal in the UI, 0..65535).
-  - platform: template
-    id: did_from
-    name: "DID Scan From"
-    entity_category: config
-    min_value: 0
-    max_value: 65535
-    step: 1
-    mode: box
-    optimistic: true
-    initial_value: 0
-    web_server:
-      sorting_group_id: group_debug
-  - platform: template
-    id: did_to
-    name: "DID Scan To"
-    entity_category: config
-    min_value: 0
-    max_value: 65535
-    step: 1
-    mode: box
-    optimistic: true
-    initial_value: 4095
-    web_server:
-      sorting_group_id: group_debug
-
 button:
-  # Research: controller loss, stops sending without "off".
-  - platform: template
-    name: "Heater Abort (silent, raises P000307)"
-    web_server:
-      sorting_group_id: group_debug
-    on_press:
-      - lambda: "id(heater).abort_command();"
   - platform: template
     name: "Clear Fault Codes"
     icon: mdi:delete-sweep-outline
@@ -653,31 +579,6 @@ button:
       sorting_group_id: group_control
     on_press:
       - lambda: 'id(heater).send_uds_request("14 FF FF FF");'
-  - platform: template
-    name: "Send UDS Request"
-    web_server:
-      sorting_group_id: group_debug
-    on_press:
-      - lambda: "id(heater).send_uds_request(id(uds_request).state);"
-  - platform: template
-    name: "Scan Local IDs"
-    web_server:
-      sorting_group_id: group_debug
-    on_press:
-      - lambda: "id(heater).scan_local_ids(0x00, 0xFF);"
-  - platform: template
-    name: "Scan DID Range"
-    web_server:
-      sorting_group_id: group_debug
-    on_press:
-      - lambda: "id(heater).scan_dids((uint16_t) id(did_from).state, (uint16_t) id(did_to).state);"
-  # UDS identification DIDs (read-only); results in "Diag Response".
-  - platform: template
-    name: "Scan Identification DIDs"
-    web_server:
-      sorting_group_id: group_debug
-    on_press:
-      - lambda: "id(heater).scan_dids(0xF180, 0xF19F);"
   # Error-memory readout like the EasyStart's (mode handled by the component).
   - platform: template
     name: "Read Fault Codes"
@@ -729,10 +630,6 @@ text_sensor:
       icon: mdi:alert-octagon-outline
       web_server:
         sorting_group_id: group_heater
-    diag_response:
-      name: "Diag Response"
-      web_server:
-        sorting_group_id: group_debug
     event:
       name: "Heater Event"
       icon: mdi:timeline-text-outline

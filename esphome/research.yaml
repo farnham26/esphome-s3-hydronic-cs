@@ -1,0 +1,118 @@
+# Research tools for the protocol work (ID table, scans, raw values, UDS console).
+# Included by hydronic-s3.yaml as a package; drop it for a production device.
+hydronic_s3:
+  research: true
+
+sensor:
+  - platform: hydronic_s3
+    glow_plug_raw:
+      name: "Glow Plug Raw"
+      icon: mdi:lightning-bolt-outline
+      web_server:
+        sorting_group_id: group_components
+    fd08_raw:
+      name: "FD08 Raw"
+      web_server:
+        sorting_group_id: group_debug
+    fd35_raw:
+      name: "FD35 Raw"
+      web_server:
+        sorting_group_id: group_debug
+
+text_sensor:
+  - platform: hydronic_s3
+    diag_response:
+      name: "Diag Response"
+      web_server:
+        sorting_group_id: group_debug
+
+switch:
+  # Research: sweeps all answering DIDs FD00..FD44 instead (DID sensors keep updating).
+  - platform: template
+    id: poll_all_dids
+    name: "Poll All DIDs"
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    web_server:
+      sorting_group_id: group_debug
+    turn_on_action:
+      - switch.turn_off: poll_dids
+      - lambda: |-
+          std::vector<uint16_t> dids;
+          for (uint16_t d = 0xFD00; d <= 0xFD44; d++) dids.push_back(d);
+          id(heater).start_polling(dids, 5000);
+    turn_off_action:
+      - lambda: "id(heater).stop_polling();"
+      - switch.turn_on: poll_dids
+
+text:
+  - platform: template
+    id: uds_request
+    name: "UDS Request"
+    entity_category: config
+    mode: text
+    optimistic: true
+    initial_value: "19 02 08"
+    web_server:
+      sorting_group_id: group_debug
+
+number:
+  # DID scan range (decimal in the UI, 0..65535).
+  - platform: template
+    id: did_from
+    name: "DID Scan From"
+    entity_category: config
+    min_value: 0
+    max_value: 65535
+    step: 1
+    mode: box
+    optimistic: true
+    initial_value: 0
+    web_server:
+      sorting_group_id: group_debug
+  - platform: template
+    id: did_to
+    name: "DID Scan To"
+    entity_category: config
+    min_value: 0
+    max_value: 65535
+    step: 1
+    mode: box
+    optimistic: true
+    initial_value: 4095
+    web_server:
+      sorting_group_id: group_debug
+
+button:
+  # Research: controller loss, stops sending without "off".
+  - platform: template
+    name: "Heater Abort (silent, raises P000307)"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).abort_command();"
+  - platform: template
+    name: "Send UDS Request"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).send_uds_request(id(uds_request).state);"
+  - platform: template
+    name: "Scan Local IDs"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).scan_local_ids(0x00, 0xFF);"
+  - platform: template
+    name: "Scan DID Range"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).scan_dids((uint16_t) id(did_from).state, (uint16_t) id(did_to).state);"
+  # UDS identification DIDs (read-only); results in "Diag Response".
+  - platform: template
+    name: "Scan Identification DIDs"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).scan_dids(0xF180, 0xF19F);"
