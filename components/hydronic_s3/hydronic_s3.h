@@ -78,9 +78,10 @@ static constexpr float HEAT_FLOW_W_PER_L_H = 5600.0f / 0.65f;
 /// Coolant Alde Premixed G13: ready mixed ~50 % glycol (ethylene glycol, 20 % of it replaced by glycerin),
 /// frost -37 °C. No published cp; 50 % EG tables at 60-70 °C: 3.47 kJ/(kg K) x 1.05 kg/l. J/(l K), ±5 %.
 static constexpr float COOLANT_J_PER_L_K = 3650.0f;
-/// Water flow is estimated only above this outlet - inlet difference (K); at 2 K the
-/// sensor offset alone is ±15-20 %.
-static constexpr float FLOW_MIN_DT_K = 2.0f;
+/// Water flow is estimated while burning from outlet - inlet >= FLOW_ON_DT_K until it
+/// drops below FLOW_OFF_DT_K (hysteresis; at 2 K the sensor offset alone is ±15-20 %).
+static constexpr float FLOW_ON_DT_K = 2.5f;
+static constexpr float FLOW_OFF_DT_K = 2.0f;
 
 /// Eberspächer Hydronic S3 on CAN (EasyStart protocol, 11-bit, 500 kbit/s).
 /// Listen-only: decodes what is known, and logs new IDs and changing bytes so
@@ -229,6 +230,7 @@ class HydronicS3 : public Component {
   int fault_code_{-1};
   int phase_{-1};  // FD10 B1, last seen
   float did_inlet_c_{NAN}, did_outlet_c_{NAN};  // FD01, same sweep as FD11 (flow estimate)
+  bool flow_valid_{false};  // flow estimate hysteresis state
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
   uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};

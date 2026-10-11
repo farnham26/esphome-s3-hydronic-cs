@@ -954,9 +954,12 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         pub(DID_HEATING_POWER, l_h * HEAT_FLOW_W_PER_L_H);
         // Steady burn only: during starts and pauses the heat goes into metal, not the flow.
         const float dt = this->did_outlet_c_ - this->did_inlet_c_;
-        pub(DID_WATER_FLOW, this->phase_ == 0x14 && dt >= FLOW_MIN_DT_K
-                                ? l_h * HEAT_FLOW_W_PER_L_H * 3600.0f / (COOLANT_J_PER_L_K * dt)
-                                : NAN);
+        if (this->phase_ != 0x14 || !(dt >= FLOW_OFF_DT_K))
+          this->flow_valid_ = false;
+        else if (dt >= FLOW_ON_DT_K)
+          this->flow_valid_ = true;
+        pub(DID_WATER_FLOW,
+            this->flow_valid_ ? l_h * HEAT_FLOW_W_PER_L_H * 3600.0f / (COOLANT_J_PER_L_K * dt) : NAN);
       }
       if (n >= 10) {
         const uint32_t litres = static_cast<uint32_t>(u16(2)) << 16 | u16(4);
