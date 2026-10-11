@@ -110,6 +110,17 @@ converter** (e.g. to protect a lower-voltage pump) — the heater may refuse sta
   fall. A converter's input capacitance keeps the line near the supply voltage, which the heater reads as a short
   to +Ub. A stock (BLDC) pump does not do that.
 - **Fix that works for us:**
+
+  ```
+   heater                     D1 Schottky            DC/DC                 pump
+   pump out ──┬──[ NTC ]──────►|───────────────[ IN+       OUT+ ]────────(+)
+              │  (optional,  anode  cathode      (C_in inside)             M
+             ┌┴┐  inrush)                                                  │
+         R1  │ │ 1–1.2 kΩ, ≥ 1 W                                           │
+             └┬┘ heater side!                                              │
+   GND ───────┴────────────────────────────────[ IN−       OUT− ]────────(−)
+  ```
+
   1. A **Schottky diode in series** (anode at the heater's pump output, cathode at the converter), ≥ 60 V, rated
      well above the pump current (we use an MBR3060PT). It stops the back-feed: P000252 has not counted since.
   2. A **bleeder resistor on the heater side** of the diode (anode → ground), ~1–1.2 kΩ, ≥ 1 W. Without it, or
