@@ -70,10 +70,10 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-11 ~15:10)
+## Session state (2026-10-11 ~16:00)
 - EasyStart **disconnected** (on the diagnostic connector, shared with our tap → termination conflict; must be
-  retired for the final wiring, so DTC clear had to move into firmware — see below). Device firmware = 005740a
-  (flashed). WiFi reachable, log level INFO.
+  retired for the final wiring, so DTC clear had to move into firmware — see below). Device firmware = 7270522
+   (flashed 15:52). WiFi reachable, log level INFO.
 - Own control without EasyStart now solid: Heat (10:23), Fan (14:33), Residual heat = pump + vehicle fan (14:33)
   all verified. Three P000307 fixes today (burst only while commanding; ack only while bus awake so our boot does
   not wake the heater; answer every heater wake as control unit "off" until idle+15 s). Power-cycle 14:42: no 0x04.
@@ -84,12 +84,11 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
   decoded"). The seed/key themselves are heater-specific and kept **out of this repo** (not real security,
   just not spread in the repo text): `clear_dtc()` calls `set_security_provider()` (public mechanism,
   documented in `docs/research.md` "DTC clear: security provider" with a placeholder example), wired to the
-  real values locally via a local, untracked config (`on_boot` lambda). Without the local yaml, `clear_dtc()` fails with
+  real values by a local, untracked overlay (`on_boot` lambda). Without the overlay, `clear_dtc()` fails with
   a clear logged/UI message; everything else (read-out, start/stop, polling) is unaffected. Wired to the
   existing "Clear Fault Codes" button (which previously sent the bare `14 FF FF FF` with no unlock and got
   NRC'd). Flashed and **confirmed working on the real heater, ~15:20**.
-- Pushed to origin/master (ff) through e29d62b: the three P000307 fixes, residual-heat naming, TWAI doc, and
-  the DTC-clear session-state update. The security-provider split (this entry) is not pushed yet.
+- origin/master = 7270522 (all pushed; DTC-clear commits squashed, force-pushed 10-11).
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run

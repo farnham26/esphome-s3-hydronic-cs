@@ -477,7 +477,7 @@ cryptographic security — anyone sniffing the bus or running the EasyStart menu
 bytes — just not spread in the repo text). `HydronicS3::clear_dtc()` asks
 `HydronicS3::set_security_provider()` for the key given the seed; without one registered it
 fails with a clear logged/UI message, and nothing else in the component is affected. Wire one
-in via an `on_boot` lambda in a local, gitignored config (`work/` here), e.g.:
+in via an `on_boot` lambda in a local, untracked config, e.g.:
 ```yaml
 esphome:
   on_boot:

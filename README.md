@@ -26,7 +26,7 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
   - blower speed, metering pump rate, supply voltage, control unit temperature
   - operating hours per power band, control pause, altitude mode
   - hardware/software version, part and serial number
-  - fault codes (DTC read-out with status)
+  - fault codes (DTC read-out with status; clearing needs the heater's unlock key, see below)
 - **Control**: start and stop, indefinitely or with a watchdog, through a switch, REST or the
   ESPHome API. The component takes the EasyStart's role on the bus (wake-up, command set,
   keep-alive) and retries the start when the heater holds it.
@@ -101,6 +101,10 @@ All controls are in the web UI group **Heater Control**.
 - A start hold (fault flag `0x40`) is retried up to three times, then the switch turns off.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).
+- **Read Fault Codes** / **Clear Fault Codes** (buttons): the error memory as the EasyStart's workshop
+  menu shows and deletes it. Clearing needs a SecurityAccess key that is not in this repo; register it
+  with `set_security_provider()` from a local config (see `docs/research.md` "DTC clear: security
+  provider"). Without it, clearing fails with a message; everything else works.
 
 ## Non-stock water pump: start holds (P000252 / P000250)
 
