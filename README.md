@@ -19,8 +19,9 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
   polled only while the heater is active, so the bus and the heater can go to sleep:
   - outlet / inlet temperature, ΔT, flame sensor temperature
   - heating power and fuel consumption (from the metering pump), total fuel burnt
-  - operating phase (cold/warm start, burn, control pause, run-down, hold), flame, glow plug power
-  - blower speed, metering pump rate, supply voltage
+  - operating phase (cold/warm start, burn, control pause, run-down, hold), start progress (sub-step),
+    combustion state (pre-glow / fuel / flame), flame, glow plug power
+  - blower speed, metering pump rate, supply voltage, control unit temperature
   - operating hours per power band, control pause, altitude mode
   - hardware/software version, part and serial number
   - fault codes (DTC read-out with status)

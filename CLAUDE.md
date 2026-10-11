@@ -15,8 +15,11 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
 ## Layout
 | Path | Purpose |
 |---|---|
-| `components/hydronic_s3/` | The component. Listen-only discovery now: logs new IDs, per-byte changes (muted after 16), 10 s ID table with period/gaps. |
-| `esphome/hydronic-s3.yaml` | Device config: Fire + COMMU, component, display, HA sensors, DS18B20/pump reference sensors. |
+| `components/hydronic_s3/` | The component: broadcast + UDS DID decoding, polling state machine (heater may sleep), start/stop in place of the EasyStart (wake, command set, config burst, retry, watchdog), TX queue, research tools (scans, ID table, wake trace). |
+| `esphome/hydronic-s3.yaml` | Device config: Fire + COMMU, component, HA entities (web UI groups: Heater Control, Heater, Components, Counters, CAN, Debug). |
+| `esphome/ui/heater-ui.yaml` | LVGL UI (fonts, styles, pages), shared by the device and the SDL preview. |
+| `esphome/hydronic-s3-sdl.yaml` | SDL preview of the UI on the host (demo values); screenshots via `import -window` on XWayland. |
+| `README.md`, `docs/img/` | Human-facing README with screenshots (web UI: headless Chrome `--timeout=35000`; LCD: SDL). |
 | `esphome/boards/m5stack-fire.yaml` | Board package (Fire v2.7: PSRAM, SD CS held high). |
 | `tools/m5.sh` | upload/logs by stable by-id path. `tools/bootlog.py`: reset + boot log over USB. |
 | `docs/research.md` | Protocol research (Airtronic S3 map, J1939 HTR, heater facts). |
@@ -65,13 +68,13 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-10 23:45, end of live session)
-- Heater OFF for the night: tempcontrol S+ relay OFF (`switch/TempControl S3 Heater relay (real)`), PID climate
-  OFF (`climate/TempControl PID Climate Controller`, valve readback `sensor/TempControl Ventilposition`).
-- Fire on power bank; switch "Poll All DIDs" ON (FD00..FD44 every 5 s, research). WiFi weak: API log lines get dropped, entity updates reliable.
-- Firmware = d0428fb: DID sensors (temps, voltage, blower, glow, pump, phase, fuel l/h, heating power, fuel total,
-  hour counters, flame), ident text sensors, CAN start after boot-good flash writes (no overflows since).
-- Decoded so far: `docs/research.md` (DID correlation, fuel, regulation curve FD33, phases, counters, DTC 19 06).
+## Session state (2026-10-11 ~11:15)
+- **EasyStart disconnected**; the Fire is the only controller (acks, `Heater Run` start/stop works, P000307 fixed).
+  User is fitting a Schottky diode (MBR3060PT) + inrush limiter + bleeder in the pump line (DC/DC converter in front
+  of the non-stock pump → P000252 start holds). Heater supply off meanwhile. Next: starts, read P000252 counter (115).
+- S+ relay and tempcontrol climate OFF.
+- Firmware = 9ea0f85 (start step, combustion state, control unit temp). Stored DTCs P000307/P000440 (ours, count 1)
+  can't be cleared by us (NRC 7F) → EasyStart menu sniff.
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
