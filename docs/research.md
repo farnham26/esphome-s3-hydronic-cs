@@ -463,3 +463,10 @@ EasyStart reconnected. EasyStart start: no hold. S+ series (EasyStart present): 
 | Read hour counter | `22 FD 17` → 1817 h on the display = FD17 dword 1 (109062 min) → **FD17 confirmed** |
 - Error memory cleared 13:48:55 → all DTC occurrence counters restart at 0 (baseline for the pump-line fix).
 - The other FD17 dwords (power bands, pause, altitude) match our sensors; FD17 counts in state 05 incl. pause.
+
+## Config burst decode, step 1: maintenance interval in `064` (2026-10-11 13:51–13:52)
+The EasyStart re-sends config frames **live on every settings change** (not only at power-up). Maintenance
+interval set to 1000 h, then back to "off" (no UDS traffic at all; status computed from FD17):
+- **`064` B6–B7 = maintenance interval, u16 LE in 10 h units, `03FF` = off** (`0064` = 1000 h).
+- `064` B1 bits 2–3: change sequence counter (04 → 08 → 0C → 04; 00 after power-up).
+- Open in `064`: B0 `3C` (60), B2 `05`, B4 `C8` (200). Method: change one EasyStart setting, watch the frame.
