@@ -470,3 +470,10 @@ interval set to 1000 h, then back to "off" (no UDS traffic at all; status comput
 - **`064` B6–B7 = maintenance interval, u16 LE in 10 h units, `03FF` = off** (`0064` = 1000 h).
 - `064` B1 bits 2–3: change sequence counter (04 → 08 → 0C → 04; 00 after power-up).
 - Open in `064`: B0 `3C` (60), B2 `05`, B4 `C8` (200). Method: change one EasyStart setting, watch the frame.
+
+## Config burst decode, step 2: `063` (2026-10-11 13:54)
+Sensor selection → "control unit", temperature offset → +3 °C, sent together on confirm/menu exit:
+`063` `32 00 01 00 …` (morning) → `50 01 01 01 …`.
+- **B0 = temperature offset, (raw − 50) / 10 °C** (`32` = 0.0, `50` = +3.0) — to confirm with a second value.
+- **B3 = temperature sensor selection** (1 = control unit) — to confirm by setting it back.
+- B1: change counter (as `064` B1). B2 `01`: open.
