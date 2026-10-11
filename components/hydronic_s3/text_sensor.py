@@ -12,6 +12,7 @@ CONF_EVENT = "event"
 CONF_FAULT_CODES = "fault_codes"
 CONF_DIAG_RESPONSE = "diag_response"
 CONF_OPERATING_PHASE_TEXT = "operating_phase_text"
+CONF_COMBUSTION_TEXT = "combustion_text"
 IdentText = cg.esphome_ns.namespace("hydronic_s3").enum("IdentText")
 IDENT = {
     "hardware_version": "IDENT_HARDWARE_VERSION",
@@ -29,6 +30,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FAULT_CODES): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_DIAG_RESPONSE): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_OPERATING_PHASE_TEXT): text_sensor.text_sensor_schema(),  # FD10 B1, descriptive
+        cv.Optional(CONF_COMBUSTION_TEXT): text_sensor.text_sensor_schema(),  # FD0F B1, named
         **{
             cv.Optional(key): text_sensor.text_sensor_schema(entity_category="diagnostic")
             for key in IDENT
@@ -51,6 +53,8 @@ async def to_code(config):
         cg.add(parent.set_diag_response_text_sensor(await text_sensor.new_text_sensor(conf)))
     if conf := config.get(CONF_OPERATING_PHASE_TEXT):
         cg.add(parent.set_phase_text_sensor(await text_sensor.new_text_sensor(conf)))
+    if conf := config.get(CONF_COMBUSTION_TEXT):
+        cg.add(parent.set_combustion_text_sensor(await text_sensor.new_text_sensor(conf)))
     for key, which in IDENT.items():
         if conf := config.get(key):
             cg.add(parent.set_ident_text_sensor(getattr(IdentText, which), await text_sensor.new_text_sensor(conf)))

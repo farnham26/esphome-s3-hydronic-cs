@@ -19,6 +19,9 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
+#ifdef USE_TIME
+#include "esphome/components/time/real_time_clock.h"
+#endif
 
 namespace esphome::hydronic_s3 {
 
@@ -91,6 +94,11 @@ class HydronicS3 : public Component {
   void set_canbus(canbus::Canbus *bus) { this->canbus_ = bus; }
   /// Research aids: per-ID table, change log, wake trace (off: decode only).
   void set_research(bool research) { this->research_ = research; }
+#ifdef USE_TIME
+  /// Clock for the heater (10A, as the EasyStart's time setting): sent with the config
+  /// burst and on each sync while we command. Without it, 10A carries "time not set".
+  void set_time(time::RealTimeClock *clock) { this->clock_ = clock; }
+#endif
 #ifdef USE_SENSOR
   void set_outlet_temperature_sensor(sensor::Sensor *s) { this->outlet_temperature_ = s; }
   void set_state_code_sensor(sensor::Sensor *s) { this->state_code_ = s; }
@@ -104,6 +112,7 @@ class HydronicS3 : public Component {
   void set_diag_response_text_sensor(text_sensor::TextSensor *s) { this->diag_response_text_ = s; }
   void set_ident_text_sensor(IdentText which, text_sensor::TextSensor *s) { this->ident_texts_[which] = s; }
   void set_phase_text_sensor(text_sensor::TextSensor *s) { this->phase_text_ = s; }
+  void set_combustion_text_sensor(text_sensor::TextSensor *s) { this->combustion_text_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
@@ -125,6 +134,8 @@ class HydronicS3 : public Component {
   static const char *phase_name(int phase);
   /// FD10 B1 operating phase, descriptive; nullptr if unknown.
   static const char *phase_long_name(int phase);
+  /// FD0F B1 combustion state; nullptr if unknown.
+  static const char *combustion_name(int state);
   /// Sends UDS ReadDTCInformation (19 02 <mask>) as the EasyStart's error-memory
   /// readout does. The bus controller must be out of listen-only mode.
   void request_fault_codes(uint8_t status_mask);
@@ -275,6 +286,11 @@ class HydronicS3 : public Component {
   uint8_t burst_round_{0};
   void burst_loop_();
   void schedule_burst_();
+  bool clock_frame_(uint8_t out[6]);  // 10A from the clock; false: no valid time
+  uint8_t clock_counter_{0};          // 10A B2 bits 6-7, 1..3 as the EasyStart
+#ifdef USE_TIME
+  time::RealTimeClock *clock_{nullptr};
+#endif
   /// Controller frames: the MCP2515 has 3 TX buffers, a full one is retried on the
   /// next loop instead of dropping the frame.
   struct TxFrame {
@@ -313,6 +329,7 @@ class HydronicS3 : public Component {
   text_sensor::TextSensor *diag_response_text_{nullptr};
   text_sensor::TextSensor *ident_texts_[IDENT_COUNT]{};
   text_sensor::TextSensor *phase_text_{nullptr};
+  text_sensor::TextSensor *combustion_text_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};

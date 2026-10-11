@@ -32,13 +32,15 @@ static constexpr uint32_t ID_COMMAND = 0x054;
 static constexpr uint32_t ID_CONTROLLER_STATUS = 0x065;
 static constexpr uint32_t ID_STATUS = 0x2C4;
 static constexpr uint32_t ID_HEARTBEAT = 0x625;
+static constexpr uint32_t ID_CLOCK = 0x10A;  // controller time and weekday, see clock_frame_()
 static constexpr uint32_t ID_KEEPALIVE = 0x60D;  // EasyStart, 100 ms; its retries woke the bus
 static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
 static constexpr uint32_t COMMAND_OFF_MS = 15000;  // after idle, as the EasyStart
 static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;  // 065, as the EasyStart after a wake
 // EasyStart configuration burst, sent 4x (~150 ms apart) ~2 s after its power-up;
-// recorded 10-11, meaning not decoded. Replayed once per boot when it is absent.
+// recorded 10-11, replayed once per boot when it is absent; 10A carries our clock if
+// one is configured (clock_frame_()).
 struct BurstFrame {
   uint16_t id;
   uint8_t len;
@@ -156,6 +158,20 @@ static const PhaseName PHASES[] = {
     {0xD2, "Fan", "Fan (vehicle fan only)"},  // 054 B1 02, FD10 B0 03, 2C4 state 21
 };
 
+// FD0F B1, from observation (10-10/10-11, only 1-3 seen).
+const char *HydronicS3::combustion_name(int state) {
+  switch (state) {
+    case 1:
+      return "No fuel";  // idle, pre-glow, fan, residual heat, run-down
+    case 2:
+      return "Ignition";  // fuel on, no flame yet
+    case 3:
+      return "Burning";  // flame
+    default:
+      return nullptr;
+  }
+}
+
 const char *HydronicS3::phase_name(int phase) {
   for (const auto &p : PHASES)
     if (p.code == phase)
@@ -190,6 +206,20 @@ void HydronicS3::setup() {
     this->expire_stale_();
     this->update_mode_();  // EasyStart gone: back to acking (mode changes only)
   });
+#ifdef USE_TIME
+  if (this->clock_ != nullptr) {
+    // New time as the EasyStart on a time setting: once, only while the bus is ours
+    // (before the burst, the burst carries it).
+    this->clock_->add_on_time_sync_callback([this]() {
+      uint8_t clock[6];
+      if (!this->burst_sent_ || !this->commanding_() || !this->connected() || this->easystart_present_())
+        return;
+      this->clock_counter_ = this->clock_counter_ % 3 + 1;
+      if (this->clock_frame_(clock))
+        this->queue_(ID_CLOCK, clock, sizeof(clock));
+    });
+  }
+#endif
 #ifdef USE_BINARY_SENSOR
   if (this->connected_ != nullptr)
     this->connected_->publish_state(false);
@@ -264,6 +294,8 @@ void HydronicS3::expire_stale_() {
 #ifdef USE_TEXT_SENSOR
     if (i == DID_OPERATING_PHASE && this->phase_text_ != nullptr)
       this->phase_text_->publish_state("");
+    if (i == DID_COMBUSTION_STATE && this->combustion_text_ != nullptr)
+      this->combustion_text_->publish_state("");
 #endif
     if (i == DID_OPERATING_PHASE)
       this->phase_ = -1;
@@ -641,8 +673,15 @@ void HydronicS3::burst_loop_() {
     this->burst_due_ms_ = 0;
     return;
   }
-  for (const BurstFrame &f : BURST)
-    this->queue_(f.id, f.data, f.len);
+  if (this->burst_round_ == 0)
+    this->clock_counter_ = this->clock_counter_ % 3 + 1;
+  for (const BurstFrame &f : BURST) {
+    uint8_t clock[6];
+    if (f.id == ID_CLOCK && this->clock_frame_(clock))
+      this->queue_(f.id, clock, sizeof(clock));
+    else
+      this->queue_(f.id, f.data, f.len);
+  }
   if (++this->burst_round_ < BURST_ROUNDS) {
     this->burst_due_ms_ = now + BURST_ROUND_MS;
     return;
@@ -650,6 +689,28 @@ void HydronicS3::burst_loop_() {
   this->burst_due_ms_ = 0;
   this->burst_sent_ = true;
   ESP_LOGI(TAG, "config burst sent");
+}
+
+// 10A as the EasyStart sends it after its time setting (decoded 10-11):
+// B0 0x10 | weekday (Mon = 0), B1 minute << 2 | time set (0x02) | weekday set (0x01),
+// B2 counter << 6 | second, B3 0x20 | hour, B4-B5 10 01.
+bool HydronicS3::clock_frame_(uint8_t out[6]) {
+#ifdef USE_TIME
+  if (this->clock_ == nullptr)
+    return false;
+  const ESPTime t = this->clock_->now();
+  if (!t.is_valid())
+    return false;
+  out[0] = 0x10 | ((t.day_of_week + 5) % 7);  // ESPTime: 1 = Sunday
+  out[1] = (t.minute << 2) | 0x03;
+  out[2] = (this->clock_counter_ << 6) | std::min<uint8_t>(t.second, 59);
+  out[3] = 0x20 | t.hour;
+  out[4] = 0x10;
+  out[5] = 0x01;
+  return true;
+#else
+  return false;
+#endif
 }
 
 void HydronicS3::loop() {
@@ -1073,8 +1134,18 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         pub(DID_START_STEP, d[2]);
       break;
     case 0xFD0F:
-      if (n >= 2)
+      if (n >= 2) {
         pub(DID_COMBUSTION_STATE, d[1]);
+#ifdef USE_TEXT_SENSOR
+        if (this->combustion_text_ != nullptr) {
+          const char *name = combustion_name(d[1]);
+          char buf[8];
+          snprintf(buf, sizeof(buf), "0x%02X", d[1]);
+          if (this->combustion_text_->state != (name != nullptr ? name : buf))
+            this->combustion_text_->publish_state(name != nullptr ? name : buf);
+        }
+#endif
+      }
       break;
     case 0xFD11:
       if (n >= 2) {
