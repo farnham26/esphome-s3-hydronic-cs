@@ -40,9 +40,9 @@ logger:
   # DEBUG for hydronic_s3's per-byte change log; per-tag levels may only be
   # quieter than the global one.
   level: DEBUG
-  # Runtime level after boot; "Log Level" select switches it (INFO for normal use,
-  # DEBUG while researching: the diag/DID lines are DEBUG).
-  initial_level: DEBUG
+  # Runtime level after boot; raise with the "Log Level" select for research runs
+  # (the diag/DID lines are DEBUG).
+  initial_level: INFO
   logs:
     canbus: ERROR           # DEBUG logs every frame, WARN every busy TX buffer (hydronic_s3 queues)
     i2c.idf: ERROR
