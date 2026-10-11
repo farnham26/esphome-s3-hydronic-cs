@@ -414,7 +414,7 @@ sensor:
         sorting_group_id: group_heater
     heating_power:
       id: s_power
-      name: "Heating Power"
+      name: "Heating Power (estimated)"
       icon: mdi:radiator
       web_server:
         sorting_group_id: group_heater
@@ -476,6 +476,11 @@ sensor:
       icon: mdi:fire-circle
       web_server:
         sorting_group_id: group_components
+    water_flow:
+      name: "Water Flow (estimated)"
+      icon: mdi:water-pump
+      web_server:
+        sorting_group_id: group_heater
     control_unit_temperature:
       name: "Control Unit Temperature"
       icon: mdi:chip

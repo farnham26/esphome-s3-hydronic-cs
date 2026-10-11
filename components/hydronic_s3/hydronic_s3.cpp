@@ -942,7 +942,10 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
       if (n >= 4) {
         pub(DID_FLAME_SENSOR_TEMP, u16(0) / 100.0f - 50.0f);
         pub(DID_INLET_TEMPERATURE, u16(2) / 100.0f - 50.0f);
+        this->did_inlet_c_ = u16(2) / 100.0f - 50.0f;
       }
+      if (n >= 6)
+        this->did_outlet_c_ = u16(4) / 100.0f - 50.0f;
       break;
     case 0xFD04:
       if (n >= 2)
@@ -1005,6 +1008,11 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         const float l_h = d[1] * 3600.0f / 1e6f;
         pub(DID_FUEL_CONSUMPTION, l_h);
         pub(DID_HEATING_POWER, l_h * HEAT_FLOW_W_PER_L_H);
+        // Steady burn only: during starts and pauses the heat goes into metal, not the flow.
+        const float dt = this->did_outlet_c_ - this->did_inlet_c_;
+        pub(DID_WATER_FLOW, this->phase_ == 0x14 && dt >= FLOW_MIN_DT_K
+                                ? l_h * HEAT_FLOW_W_PER_L_H * 3600.0f / (COOLANT_J_PER_L_K * dt)
+                                : NAN);
       }
       if (n >= 10) {
         const uint32_t litres = static_cast<uint32_t>(u16(2)) << 16 | u16(4);

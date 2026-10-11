@@ -120,6 +120,15 @@ DID_SENSORS = {
     "start_step": ("DID_START_STEP", dict(accuracy_decimals=0)),
     "combustion_state": ("DID_COMBUSTION_STATE", dict(accuracy_decimals=0)),
     "control_unit_temperature": ("DID_CONTROL_UNIT_TEMP", _TEMP),
+    "water_flow": (
+        "DID_WATER_FLOW",
+        dict(
+            unit_of_measurement="L/h",
+            accuracy_decimals=0,
+            device_class=DEVICE_CLASS_VOLUME_FLOW_RATE,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+    ),
     "fd35_raw": ("DID_FD35_RAW", dict(accuracy_decimals=0, entity_category=ENTITY_CATEGORY_DIAGNOSTIC)),
 }
 
