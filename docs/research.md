@@ -373,3 +373,23 @@ Wake trace (first frames after silence, Fire listen-only until `2C4`):
   time (hold `054` on > 30 min with the EasyStart disconnected).
 - Switch-off: `054 → 00 00`, `2C4` `05 → 03` with B1 `08` (run-down) at once, flame off, afterglow ~90 W,
   phase `1E`; run-down ends after 95 s (`2C4` B1 → `00`, phase `00`).
+
+## Without the EasyStart (2026-10-11 ~10:00, EasyStart disconnected, bus unterminated: REC/TEC 0)
+- Heater alone sends `625`, `2C4`, `2C5`, `2C6` only → `60D`, `054`–`057`, `065`, `05C`–`10A` are the EasyStart's.
+- **Someone must ack**: with the Fire listen-only the heater retried its first `625` forever (~3800 fps), never
+  reached `2C4`. Component now acks (normal mode) whenever no EasyStart was seen for 60 s.
+- Our `60D`/`054` wake it; DTC read: no P000342 → it accepts us as the only controller.
+
+## Start hold = P000252 detection (2026-10-11)
+| Time | Start | Water | Result |
+|---|---|---|---|
+| 09:32 | EasyStart (off until state 03, then `054 01 01`) | 13 °C | start |
+| 10:00 | S+ alone (no `054` on the bus) | ~56 °C | start (phase `0C`) |
+| 10:08, 10:11 | ours: `054 01 01` from the first frame (heater still booting, state 00), no `065` | 70–72 °C | **hold**, `2C4` B2 `40`, phase `C8`, P000252 (2F) |
+| 10:12 | S+ alone | 70 °C | start, flame +60 s |
+- `19 06 00 02 52 FF`: occurrence count 0x69 (105, 10-10) → **0x6B (107)**: +2 = exactly our two holds; good starts do
+  not count. Freeze-frame temps 70.3/70.8/64.7 °C (10-10: 40.8/40.9/38.6 °C) → not temperature.
+  Start/stop counter 0x1D3C → 0x1D57. `19 04` (snapshot): NRC 12.
+- Common to all holds (incl. 10-10 S+ holds with the EasyStart sending `054 00 00`): an unexpected `054` while the
+  heater starts. Next: our start with the EasyStart sequence (off until state 03, `065` every 3 s).
+- Hold clears with the request (S+ off / `054` off); phase `C8` = hold.

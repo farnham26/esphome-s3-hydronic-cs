@@ -219,6 +219,8 @@ class HydronicS3 : public Component {
   uint32_t command_deadline_ms_{0};
   uint32_t keepalive_next_ms_{0};
   uint8_t keepalive_data_[8]{0x0D, 0x10, 0x75, 0x7A, 0x02, 0x20, 0x70, 0x00};  // last 60D seen
+  uint8_t controller_data_[8]{0x6C, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};  // last 065 seen
+  uint32_t controller_next_ms_{0};
   bool commanding_() const { return this->command_on_ || this->command_until_ms_ != 0; }
   uint8_t idle_sweeps_{0};  // sweeps left while the heater is idle
   bool rundown_{false};     // 2C4 B1 bit 3: burner run-down, also under state 03

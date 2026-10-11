@@ -40,6 +40,7 @@ static constexpr uint32_t ID_KEEPALIVE = 0x60D;  // EasyStart, 100 ms; its retri
 static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
 static constexpr uint32_t COMMAND_OFF_MS = 5000;
+static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;  // 065, as the EasyStart after a wake
 static constexpr uint8_t IDLE_SWEEPS = 2;
 static constexpr uint32_t EASYSTART_GONE_MS = 60000;  // after a state change into idle: values, identification
 // Diagnostics: UDS over ISO-TP, tester 0x7A0 -> heater 0x73C.
@@ -265,6 +266,8 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   }
   if (easystart && can_id == ID_KEEPALIVE && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
+  if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
+    std::copy(data.begin(), data.begin() + 8, this->controller_data_);
   // 065 comes rarely (on change, ~30 s): any EasyStart frame keeps its temperature current.
   if (easystart && !std::isnan(this->controller_temp_c_))
     this->controller_ms_ = now;
@@ -521,10 +524,18 @@ void HydronicS3::command_loop_() {
     this->canbus_->send_data(ID_KEEPALIVE, false,
                              std::vector<uint8_t>(this->keepalive_data_, this->keepalive_data_ + 8));
   }
+  if (static_cast<int32_t>(now - this->controller_next_ms_) >= 0) {
+    this->controller_next_ms_ = now + CONTROLLER_PERIOD_MS;
+    this->canbus_->send_data(ID_CONTROLLER_STATUS, false,
+                             std::vector<uint8_t>(this->controller_data_, this->controller_data_ + 8));
+  }
   if (static_cast<int32_t>(now - this->command_next_ms_) < 0)
     return;
   this->command_next_ms_ = now + COMMAND_PERIOD_MS;
-  const uint8_t on = this->command_on_ ? 0x01 : 0x00;
+  // As the EasyStart: "off" while the heater boots (state 00 or not yet seen), "on"
+  // once it reports ready (03); an "on" during its boot is followed by a start hold.
+  const bool ready = this->state_ > 0x00;
+  const uint8_t on = this->command_on_ && ready ? 0x01 : 0x00;
   this->canbus_->send_data(ID_COMMAND, false, {on, on, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00});
   this->canbus_->send_data(0x055, false, {0x10, 0x27, 0, 0, 0, 0, 0, 0});
   this->canbus_->send_data(0x056, false, {0x10, 0x27, 0, 0, 0, 0, 0, 0});
