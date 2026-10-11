@@ -1,0 +1,115 @@
+# Minimal integration example: hydronic_s3 on the ESP32's own CAN controller (TWAI)
+# with an external transceiver, replacing the EasyStart. Pins are placeholders; add
+# wifi/api/ota as usual. Compile check: ../work/venv/bin/esphome compile example-twai.yaml
+esphome:
+  name: hydronic-s3-twai
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [hydronic_s3]
+
+logger:
+  level: DEBUG
+  initial_level: INFO
+
+canbus:
+  - platform: esp32_can
+    id: heater_can
+    tx_pin: GPIO4
+    rx_pin: GPIO5
+    can_id: 0x7A0          # unused (the component sends with explicit IDs)
+    bit_rate: 500KBPS
+
+# No listen-only hook: without an EasyStart the controller must ack anyway.
+hydronic_s3:
+  id: heater
+  canbus_id: heater_can
+
+# esp32_can has no bus-off recovery: restart the controller after a bus-off.
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          twai_status_info_t st;
+          if (twai_get_status_info(&st) != ESP_OK) return;
+          if (st.state == TWAI_STATE_BUS_OFF) {
+            ESP_LOGW("twai", "bus-off (TEC %u), recovering", (unsigned) st.tx_error_counter);
+            twai_initiate_recovery();
+          } else if (st.state == TWAI_STATE_STOPPED) {
+            twai_start();
+          }
+
+switch:
+  - platform: template
+    id: heater_command
+    name: "Heater Run"
+    lambda: "return id(heater).command_on();"
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: "id(heater).set_command(true);"
+    turn_off_action:
+      - lambda: "id(heater).set_command(false);"
+  # Polling of the live values; it stops by itself while the heater sleeps.
+  - platform: template
+    id: poll_dids
+    restore_mode: ALWAYS_ON
+    optimistic: true
+    internal: true
+    turn_on_action:
+      - lambda: "id(heater).start_polling(esphome::hydronic_s3::HydronicS3::sensor_dids(), 5000);"
+    turn_off_action:
+      - lambda: "id(heater).stop_polling();"
+
+number:
+  - platform: template
+    id: heater_watchdog
+    name: "Heater Run Watchdog"
+    unit_of_measurement: min
+    min_value: 0
+    max_value: 600
+    step: 1
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: "id(heater).set_command_lease(x * 60000);"
+
+sensor:
+  - platform: hydronic_s3
+    outlet_temperature:
+      name: "Outlet Temperature"
+    inlet_temperature:
+      name: "Inlet Temperature"
+    heating_power:
+      name: "Heating Power (estimated)"
+    fuel_consumption:
+      name: "Fuel Consumption"
+    water_flow:
+      name: "Water Flow (estimated)"
+    supply_voltage:
+      name: "Supply Voltage"
+    operating_phase:
+      name: "Operating Phase"
+
+binary_sensor:
+  - platform: hydronic_s3
+    flame:
+      name: "Flame"
+    connected:
+      name: "Heater Connected"
+
+text_sensor:
+  - platform: hydronic_s3
+    state:
+      name: "Heater State"
+    operating_phase_text:
+      name: "Operating Phase Text"
+    fault_codes:
+      name: "Heater Fault Codes"

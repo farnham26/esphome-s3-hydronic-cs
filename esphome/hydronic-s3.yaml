@@ -133,6 +133,7 @@ canbus:
 hydronic_s3:
   id: heater
   canbus_id: heater_can
+  research: true          # ID table, change log, wake trace
 
 
 # No GPIO one_wire/dallas_temp here: its bit-banging locks interrupts on the

@@ -87,6 +87,8 @@ static constexpr float FLOW_MIN_DT_K = 3.0f;
 class HydronicS3 : public Component {
  public:
   void set_canbus(canbus::Canbus *bus) { this->canbus_ = bus; }
+  /// Research aids: per-ID table, change log, wake trace (off: decode only).
+  void set_research(bool research) { this->research_ = research; }
 #ifdef USE_SENSOR
   void set_outlet_temperature_sensor(sensor::Sensor *s) { this->outlet_temperature_ = s; }
   void set_state_code_sensor(sensor::Sensor *s) { this->state_code_ = s; }
@@ -168,6 +170,8 @@ class HydronicS3 : public Component {
 
  protected:
   void on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data);
+  void track_id_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data, uint32_t now);
+  bool research_{false};
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
   void event_(const char *what, int from, int to);

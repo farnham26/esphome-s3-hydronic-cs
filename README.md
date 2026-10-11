@@ -48,7 +48,7 @@ still open is listed in [`docs/research.md`](docs/research.md).
 
 | Part | Notes |
 |---|---|
-| M5Stack Fire v2.7 | ESP32, LCD, battery; any ESP32 with an MCP2515 will do with config changes |
+| M5Stack Fire v2.7 | ESP32, LCD, battery (the research rig). For integration, any ESP32 with a CAN transceiver on TWAI works, see `esphome/example-twai.yaml` |
 | M5Stack COMMU | MCP2515, 8 MHz crystal, CS GPIO12, INT GPIO15 |
 | CAN tap | heater CAN H/L, 500 kbit/s, 11-bit IDs (EasyStart connector or diagnostic plug) |
 | Supply | 24 V vehicle → buck converter with ≥ 36 V input rating + TVS → 5 V |
@@ -67,6 +67,7 @@ display never cost frames.
 | `esphome/hydronic-s3.yaml` | device configuration |
 | `esphome/ui/heater-ui.yaml` | LVGL user interface, shared with the SDL preview |
 | `esphome/hydronic-s3-sdl.yaml` | UI preview on the PC (SDL), demo values |
+| `esphome/example-twai.yaml` | minimal integration on the ESP32's own CAN controller (TWAI), no MCP2515 |
 | `docs/research.md` | protocol research: frames, DIDs, phases, wake-up, start hold analysis |
 
 ## Build and flash

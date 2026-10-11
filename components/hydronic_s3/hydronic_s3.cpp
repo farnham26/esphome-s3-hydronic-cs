@@ -157,7 +157,8 @@ void HydronicS3::setup() {
   this->canbus_->add_callback([this](uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data) {
     this->on_frame_(can_id, ext, rtr, data);
   });
-  this->set_interval("dump", DUMP_INTERVAL_MS, [this]() { this->dump_ids_(); });
+  if (this->research_)
+    this->set_interval("dump", DUMP_INTERVAL_MS, [this]() { this->dump_ids_(); });
   this->set_interval("stale", 1000, [this]() {
     this->expire_stale_();
     this->update_mode_();  // EasyStart gone: back to acking (mode changes only)
@@ -265,7 +266,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
       this->event_text_->publish_state(ev);
 #endif
     this->wake_ms_ = now;
-    this->wake_trace_ = WAKE_TRACE_FRAMES;
+    this->wake_trace_ = this->research_ ? WAKE_TRACE_FRAMES : 0;
   }
   this->last_frame_ms_ = now;
   if (this->wake_trace_ != 0) {
@@ -280,6 +281,42 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     ESP_LOGI(TAG, "bus back, polling resumed");
   }
 
+  if (this->research_)
+    this->track_id_(can_id, ext, rtr, data, now);
+  // EasyStart frames (the controller never receives its own): copy its keep-alive,
+  // and stop commanding at once when it is on the bus.
+  const bool easystart = !ext && ((can_id >= ID_COMMAND && can_id <= 0x057) || can_id == ID_CONTROLLER_STATUS ||
+                                  can_id == ID_KEEPALIVE);
+  if (easystart) {
+    const bool was_present = this->easystart_present_();
+    this->easystart_ms_ = now;
+    if (!was_present) {
+      ESP_LOGI(TAG, "EasyStart present");
+      this->update_mode_();
+    }
+  }
+  if (easystart && can_id == ID_KEEPALIVE && len == 8)
+    std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
+  if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
+    std::copy(data.begin(), data.begin() + 8, this->controller_data_);
+  // 065 comes rarely (on change, ~30 s): any EasyStart frame keeps its temperature current.
+  if (easystart && !std::isnan(this->controller_temp_c_))
+    this->controller_ms_ = now;
+  if (easystart && this->commanding_()) {
+    ESP_LOGW(TAG, "EasyStart frame %03" PRIX32 " seen: command stopped", can_id);
+    this->event_("cmd backoff", can_id, 0);
+    this->command_on_ = false;
+    this->command_until_ms_ = 0;
+    this->update_mode_();
+  }
+  if (!ext && !rtr)
+    this->decode_(can_id, data);
+}
+
+// Research: per-ID table (period, gaps), new IDs and per-byte changes in the log.
+void HydronicS3::track_id_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data, uint32_t now) {
+  const uint8_t len = data.size() > 8 ? 8 : data.size();
+  char buf[25];
   auto [it, fresh] = this->ids_.try_emplace(can_id | (ext ? EXT_FLAG : 0));
   IdState &s = it->second;
   if (fresh) {
@@ -309,34 +346,6 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
         s.changes[b]++;
     }
   }
-  // EasyStart frames (the controller never receives its own): copy its keep-alive,
-  // and stop commanding at once when it is on the bus.
-  const bool easystart = !ext && ((can_id >= ID_COMMAND && can_id <= 0x057) || can_id == ID_CONTROLLER_STATUS ||
-                                  can_id == ID_KEEPALIVE);
-  if (easystart) {
-    const bool was_present = this->easystart_present_();
-    this->easystart_ms_ = now;
-    if (!was_present) {
-      ESP_LOGI(TAG, "EasyStart present");
-      this->update_mode_();
-    }
-  }
-  if (easystart && can_id == ID_KEEPALIVE && len == 8)
-    std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
-  if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
-    std::copy(data.begin(), data.begin() + 8, this->controller_data_);
-  // 065 comes rarely (on change, ~30 s): any EasyStart frame keeps its temperature current.
-  if (easystart && !std::isnan(this->controller_temp_c_))
-    this->controller_ms_ = now;
-  if (easystart && this->commanding_()) {
-    ESP_LOGW(TAG, "EasyStart frame %03" PRIX32 " seen: command stopped", can_id);
-    this->event_("cmd backoff", can_id, 0);
-    this->command_on_ = false;
-    this->command_until_ms_ = 0;
-    this->update_mode_();
-  }
-  if (!ext && !rtr)
-    this->decode_(can_id, data);
   std::copy(data.begin(), data.begin() + len, s.data);
   s.len = len;
   s.ext = ext;
@@ -472,7 +481,7 @@ void HydronicS3::scan_dids(uint16_t first, uint16_t last) { this->start_scan_(0x
 void HydronicS3::scan_local_ids(uint8_t first, uint8_t last) { this->start_scan_(0x21, first, last); }
 
 void HydronicS3::start_scan_(uint8_t service, uint32_t first, uint32_t last) {
-  if (this->scan_active_ || !this->listen_only_hook_ || !this->set_listen_only_(false)) {
+  if (this->scan_active_ || !this->set_listen_only_(false)) {
     ESP_LOGW(TAG, "scan not started");
     return;
   }
@@ -498,8 +507,7 @@ void HydronicS3::send_uds_request(const std::string &hex) {
     i += 2;
   }
   // Single frame only: up to 7 payload bytes.
-  if (payload.empty() || payload.size() > 7 || this->scan_active_ || !this->listen_only_hook_ ||
-      !this->set_listen_only_(false)) {
+  if (payload.empty() || payload.size() > 7 || this->scan_active_ || !this->set_listen_only_(false)) {
     ESP_LOGW(TAG, "UDS request '%s' not sent", hex.c_str());
     return;
   }
@@ -516,7 +524,7 @@ void HydronicS3::send_uds_request(const std::string &hex) {
 }
 
 void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
-  if (this->polling_ || this->scan_active_ || dids.empty() || !this->listen_only_hook_)
+  if (this->polling_ || this->scan_active_ || dids.empty())
     return;
   this->poll_dids_ = std::move(dids);
   this->poll_interval_ms_ = interval_ms;
@@ -539,6 +547,8 @@ void HydronicS3::stop_polling() {
 // range scan, or a single request's answer window. Listen-only otherwise.
 // Mode changes only: switching re-enters the MCP2515 config mode and aborts pending TX.
 bool HydronicS3::set_listen_only_(bool listen_only) {
+  if (!this->listen_only_hook_)  // no hook (e.g. TWAI): the controller always acks
+    return true;
   if (this->listen_only_ == static_cast<int8_t>(listen_only))
     return true;
   if (!this->listen_only_hook_(listen_only))
@@ -558,8 +568,6 @@ void HydronicS3::update_mode_() {
 }
 
 void HydronicS3::set_command(bool on) {
-  if (!this->listen_only_hook_)
-    return;
   if (on)
     this->command_deadline_ms_ = millis() + this->command_lease_ms_;
   if (on && this->command_on_) {
@@ -781,7 +789,7 @@ void HydronicS3::publish_diag_(const std::string &text) {
 }
 
 void HydronicS3::request_fault_codes(uint8_t status_mask) {
-  if (!this->listen_only_hook_ || !this->set_listen_only_(false))
+  if (!this->set_listen_only_(false))
     return;
   this->single_until_ms_ = millis() + 3000;  // answer window, then back to listen-only
   this->diag_requested_ = true;
