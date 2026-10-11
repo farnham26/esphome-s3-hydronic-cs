@@ -154,7 +154,7 @@ class HydronicS3 : public Component {
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
   /// 054 B1 while "on", as the EasyStart's three modes: MODE_HEAT (burner), MODE_FAN
-  /// (vehicle fan only), MODE_RESIDUAL (water pump only, no burner).
+  /// (vehicle fan only), MODE_RESIDUAL (water pump + vehicle fan, no burner).
   void set_command_mode(uint8_t mode) { this->command_mode_ = mode; }
   static constexpr uint8_t MODE_HEAT = 0x01;
   static constexpr uint8_t MODE_FAN = 0x02;

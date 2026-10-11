@@ -107,7 +107,7 @@ const char *HydronicS3::state_name(int state) {
     case 0x21:
       return "Fan";  // 054 B1 02: vehicle fan only (10-11)
     case 0x81:
-      return "Residual heat";  // 054 B1 03: water pump only, no burner (10-11)
+      return "Residual heat";  // 054 B1 03: water pump + vehicle fan, no burner (10-11)
     case STATE_FAULT:
       return "Fault (?)";  // Airtronic value, not seen on this heater
     default:
@@ -142,7 +142,7 @@ static const PhaseName PHASES[] = {
     {0x1F, "Run-down", "Run-down to pause"},
     {0x1E, "Shutdown", "Run-down (switched off)"},
     {0xC8, "Blocked", "Blocked (see fault codes)"},  // start hold (P000252/P000250), also after P000307
-    {0xDC, "Residual", "Residual heat (pump only)"},  // 054 B1 03, FD10 B0 04, 2C4 state 81
+    {0xDC, "Residual", "Residual heat (pump + fan)"},  // 054 B1 03, FD10 B0 04, 2C4 state 81
     {0xD2, "Fan", "Fan (vehicle fan only)"},  // 054 B1 02, FD10 B0 03, 2C4 state 21
 };
 

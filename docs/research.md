@@ -514,3 +514,8 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
 | B6 | change counter |
 - `10A` changes when entering the timer menu (`10 00 01 20 10 01` → `10 4E 40 22 10 01` → `10 4F 81 …`): open.
 - Timer 3 confirmed 14:26:36: Sa+Su 12:00 fan 10 min → `069` `BE C0 2C 00 02 0A` (inactive) / `… 8A` (active).
+
+## Own command: fan and residual heat (2026-10-11 14:33, EasyStart disconnected)
+- Fan: `Heater Run` with mode Fan → state 21, phase D2, Vehicle Fan ON (14:33:09–10); off → 03 at once.
+- Residual heat → state 81, phase DC (14:33:20); blower/fuel/glow 0, **Vehicle Fan ON**: residual heat =
+  **water pump + vehicle fan**, fan mode = **vehicle fan only**, both without burner.

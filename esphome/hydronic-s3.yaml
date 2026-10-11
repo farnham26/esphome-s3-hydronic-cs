@@ -561,7 +561,7 @@ switch:
 
 select:
   # What "Heater Run" starts, as the EasyStart's modes: Heat (burner), Residual heat
-  # (water pump only, e.g. to spread an electrically heated reservoir), Fan (vehicle fan only).
+  # (water pump + vehicle fan, e.g. to spread an electrically heated reservoir), Fan (vehicle fan only).
   - platform: template
     id: heater_mode
     name: "Heater Mode"
