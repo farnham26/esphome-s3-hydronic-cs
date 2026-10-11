@@ -531,6 +531,12 @@ void HydronicS3::abort_command() {
 
 void HydronicS3::command_loop_() {
   const uint32_t now = millis();
+  // "Off" continues while the heater is busy (run-down, active): it expects its
+  // controller to keep talking, else P000307 (CAN communication error control unit)
+  // ~15 s after silence. Ends COMMAND_OFF_MS after it is idle or asleep.
+  const bool busy = this->connected() && (this->rundown_ || (this->state_ != 0x00 && this->state_ != 0x03));
+  if (!this->command_on_ && busy)
+    this->command_until_ms_ = now + COMMAND_OFF_MS;
   if (this->command_on_ && this->command_lease_ms_ != 0 &&
       static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
     ESP_LOGW(TAG, "run watchdog expired: off");

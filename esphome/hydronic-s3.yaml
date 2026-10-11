@@ -74,6 +74,9 @@ web_server:
   version: 3
   local: true
   sorting_groups:
+    - id: group_control
+      name: "Heater Control"
+      sorting_weight: 5
     - id: group_heater
       name: "Heater"
       sorting_weight: 10
@@ -673,7 +676,7 @@ switch:
     turn_off_action:
       - lambda: "id(heater).stop_polling();"
   # Heater start/stop in place of the EasyStart (which must be off the bus): sends its
-  # command set (054-057, 60D) while on; off sends "off" for 5 s, then run-down.
+  # command set (054-057, 60D) while on; off sends "off" until the heater is idle (run-down).
   # Reads back off when the component backs off (EasyStart frames seen). Off after boot.
   - platform: template
     id: heater_command
@@ -682,7 +685,7 @@ switch:
     lambda: "return id(heater).command_on();"
     restore_mode: ALWAYS_OFF
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_control
     turn_on_action:
       - lambda: "id(heater).set_command(true);"
     turn_off_action:
@@ -731,7 +734,7 @@ number:
     optimistic: true
     restore_value: true
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_control
     set_action:
       - lambda: "id(heater).set_command_lease(x * 60000);"
   # DID scan range (decimal in the UI, 0..65535).
@@ -771,7 +774,7 @@ button:
   - platform: template
     name: "Clear Fault Codes"
     web_server:
-      sorting_group_id: group_debug
+      sorting_group_id: group_control
     on_press:
       - lambda: 'id(heater).send_uds_request("14 FF FF FF");'
   - platform: template
@@ -803,7 +806,7 @@ button:
   - platform: template
     name: "Read Fault Codes"
     web_server:
-      sorting_group_id: group_heater
+      sorting_group_id: group_control
     on_press:
       - lambda: "id(heater).request_fault_codes(0x08);"
 

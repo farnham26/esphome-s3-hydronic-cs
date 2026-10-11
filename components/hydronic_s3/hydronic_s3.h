@@ -126,9 +126,9 @@ class HydronicS3 : public Component {
   void start_polling(std::vector<uint16_t> dids, uint32_t interval_ms);
   void stop_polling();
   /// Start/stop: sends the EasyStart's command set (054-057 every 200 ms, 60D every
-  /// 100 ms, as recorded during an EasyStart run) with "on" (true) or, for 5 s, "off"
-  /// (false). Backs off for good as soon as an EasyStart frame appears: never two
-  /// controllers on the bus. Normal mode meanwhile.
+  /// 100 ms, as recorded during an EasyStart run) with "on" (true) or "off"
+  /// (false, continued while the heater runs down). Backs off for good as soon as an
+  /// EasyStart frame appears: never two controllers on the bus. Normal mode meanwhile.
   void set_command(bool on);
   /// Watchdog: "on" stops (with "off") unless set_command(true) renews it within this
   /// time. 0: no watchdog, run until set_command(false).
