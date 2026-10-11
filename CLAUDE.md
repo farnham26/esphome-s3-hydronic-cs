@@ -96,7 +96,7 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
 7. Published: `origin` = github.com/farnham26/esphome-s3-hydronic-cs (GPLv3, SSH key `id_ed25519_shasta8086`,
    author `farnham26`). History scrubbed of dealer-tool material, heater serial, internal URLs — keep it that way.
-   Retake the web screenshot with the heater running (serial row redacted).
+   Web screenshots: redact the "Heater Serial Number" row before committing.
 8. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety
