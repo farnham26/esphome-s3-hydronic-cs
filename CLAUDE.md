@@ -94,9 +94,9 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 6. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
    real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
-7. Low prio: README for humans with screenshots (web UI, LVGL screen), GPLv3 `LICENSE`, then push to `origin`
-   (github.com/farnham26/esphome-s3-hydronic-cs, GPLv3). Before pushing: review tracked files for personal data
-   (IPs, hostnames in CLAUDE.md/docs).
+7. Published: `origin` = github.com/farnham26/esphome-s3-hydronic-cs (GPLv3, SSH key `id_ed25519_shasta8086`,
+   author `farnham26`). History scrubbed of dealer-tool material, heater serial, internal URLs — keep it that way.
+   Retake the web screenshot with the heater running (serial row redacted).
 8. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety

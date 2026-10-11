@@ -439,3 +439,10 @@ state 05 (glow only, no fuel). CAN = our command (EasyStart sequence, config bur
 - Regulation: EasyStart run 09:3x (cold water): 0.644 l/h up to 69 °C, 72.5 °C → 0.443, 74.5 → 0.230, ≥ 75 °C
   minimum 0.148, no pause even at 76.9 °C → dynamic (lag/trend), not the static FD33 curve. CAN start at 70.6 °C
   rising → minimum: consistent, no sign of a CAN power cap (`055`/`056` `10 27` identical with the EasyStart).
+
+## Pump line fix, step 1 (2026-10-11 ~11:40): Schottky diode, bleeder on the pump side
+MBR3060PT in series (heater output → converter), 2.2 kΩ bleeder on the **converter** side, no series resistor/NTC.
+EasyStart reconnected. EasyStart start: no hold. S+ series (EasyStart present): hold, hold, start → stopped.
+- **P000252 count unchanged (115)**: the diode stops the converter's capacitance from back-feeding (+Ub fault gone).
+- **New: P000250 "open circuit" (count 2 = the two holds)**: with the bleeder behind the diode the heater's output
+  sees no load in its off-state check. Next: bleeder on the heater side (diode anode → GND), ~1 kΩ / 2 W.
