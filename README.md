@@ -134,7 +134,8 @@ converter** (e.g. to protect a lower-voltage pump) — the heater may refuse sta
      heater reports overcurrent at switch-on. Without either we have seen no overcurrent code so far.
 - **Firmware:** `Heater Run` retries a held start up to three times (5 s off in between) and reports the hold.
 
-This is based on one installation and a limited number of starts; check your own fault memory before and after.
+Result here: before the fix 3 of 4 S+ starts held; after it 6 of 6 started and the fault memory stayed empty.
+This is one installation and a limited number of starts; check your own fault memory before and after.
 
 ## How it works (short)
 
