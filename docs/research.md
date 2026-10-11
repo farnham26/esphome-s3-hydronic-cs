@@ -393,3 +393,25 @@ Wake trace (first frames after silence, Fire listen-only until `2C4`):
 - Common to all holds (incl. 10-10 S+ holds with the EasyStart sending `054 00 00`): an unexpected `054` while the
   heater starts. Next: our start with the EasyStart sequence (off until state 03, `065` every 3 s).
 - Hold clears with the request (S+ off / `054` off); phase `C8` = hold.
+
+## Start hold: alternating S+ / CAN series (2026-10-11 10:44–10:51)
+EasyStart disconnected, Fire acks, loop ~50–52 °C. Each trial from sleep, stopped at the hold or 4 s after `2C4`
+state 05 (glow only, no fuel). CAN = our command (EasyStart sequence, config burst replayed once per boot).
+
+| # | Source | Result | # | Source | Result |
+|---|---|---|---|---|---|
+| 1 | S+ | **hold** | 2 | CAN | start |
+| 3 | S+ | start | 4 | CAN | start |
+| 5 | S+ | start | 6 | CAN | **hold** |
+| 7 | S+ | start | 8 | CAN | **hold** |
+| 9 | S+ | start | 10 | CAN | start |
+| 11 | S+ | start | 12 | CAN | start |
+
+- **S+ 1/6, CAN 2/6 holds**: no significant difference. P000252 count 112 → 115 (+3, one per hold).
+- With the earlier starts (holds at 67.9 °C, start at 67.5 °C): **neither start source nor loop temperature
+  decides**. Two hold patterns: (A) state 05 → pause 0x28 → hold, (B) state stays 03, FD10 B0 = 0 (on request not
+  yet registered) → hold ~2 s after wake: the pump output check runs at wake.
+- Cause (user): **DC/DC converter in front of the (non-stock) pump** — its input capacitance holds the line up
+  when the heater's PWM/output is off → "short to +Ub". Planned fix: Schottky diode in series (heater → converter),
+  optional bleeder on the heater side. Firmware: automatic retry (3×, 5 s off), verified 10:34.
+- P000307/P000440 counts unchanged (1) after 6 CAN stops → continued "off" until idle + 15 s fixes P000307.
