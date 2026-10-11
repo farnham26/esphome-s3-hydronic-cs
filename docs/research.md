@@ -474,7 +474,9 @@ interval set to 1000 h, then back to "off" (no UDS traffic at all; status comput
 ## Config burst decode, step 2: `063` (2026-10-11 13:54)
 Sensor selection → "control unit", temperature offset → +3 °C, sent together on confirm/menu exit:
 `063` `32 00 01 00 …` (morning) → `50 01 01 01 …`.
-- **B0 = temperature offset, (raw − 50) / 10 °C** (`32` = 0.0, `50` = +3.0) — to confirm with a second value.
+- **B0 = temperature offset, (raw − 50) / 10 °C** (`32` = 0.0, `50` = +3.0) — confirmed (set back to 0 → `32`).
 - 13:55:26 `50 00 01 02 …`: B1 01 → 00, B3 01 → 02 → **B3 = change counter** (0, 1, 2), **B1 = temperature
   sensor selection, 0 = none, 1 = control unit** (confirmed: set back to "none"). B2 `01`: open.
 - Frames are sent on confirming a setting (`064` within seconds of each change), not only on menu exit.
+- Confirmed sequence (13:54–13:56): CU on + offset +3 → `50 01 01 01`; sensor none → `50 00 01 02`;
+  CU on + offset 0 → `32 01 01 03`; CU off → `32 00 01 01`. **B3 = 2-bit change counter 1→2→3→1** (0 after power-up).
