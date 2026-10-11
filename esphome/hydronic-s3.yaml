@@ -494,10 +494,6 @@ sensor:
             - throttle: 30s
       web_server:
         sorting_group_id: group_heater
-    controller_temperature:
-      name: "EasyStart Temperature"
-      web_server:
-        sorting_group_id: group_components
     state_code:
       name: "Heater State Code"
       entity_category: diagnostic

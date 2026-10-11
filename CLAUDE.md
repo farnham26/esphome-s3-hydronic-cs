@@ -80,7 +80,10 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
    whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
 3. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
-4. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
+4. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
+   combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
+   real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
+5. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
