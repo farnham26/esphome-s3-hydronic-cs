@@ -519,3 +519,6 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
 - Fan: `Heater Run` with mode Fan → state 21, phase D2, Vehicle Fan ON (14:33:09–10); off → 03 at once.
 - Residual heat → state 81, phase DC (14:33:20); blower/fuel/glow 0, **Vehicle Fan ON**: residual heat =
   **water pump + vehicle fan**, fan mode = **vehicle fan only**, both without burner.
+- **Config burst replay without commanding → P000307/P000440** (14:35, after a Fire reboot): the burst made the heater
+  expect a control unit, silence followed, flag 0x04 after 15 s. Fix: burst only while commanding (first
+  `Heater Run` after boot).

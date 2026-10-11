@@ -257,6 +257,7 @@ class HydronicS3 : public Component {
   uint32_t burst_due_ms_{0};    // 0: not scheduled
   uint8_t burst_round_{0};
   void burst_loop_();
+  void schedule_burst_();
   /// Controller frames: the MCP2515 has 3 TX buffers, a full one is retried on the
   /// next loop instead of dropping the frame.
   struct TxFrame {

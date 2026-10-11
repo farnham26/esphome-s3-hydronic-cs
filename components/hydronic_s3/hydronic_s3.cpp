@@ -349,11 +349,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       ESP_LOGI(TAG, "heater connected");
       this->event_("connected", 0, 1);
       this->poll_next_ms_ = millis();  // mode: by the state change below
-      // As the EasyStart at its power-up: config burst once, when it is absent.
-      if (!this->burst_sent_ && this->burst_due_ms_ == 0 && !this->easystart_present_()) {
-        this->burst_due_ms_ = millis() + BURST_DELAY_MS;
-        this->burst_round_ = 0;
-      }
+      this->schedule_burst_();
 #ifdef USE_BINARY_SENSOR
       if (this->connected_ != nullptr)
         this->connected_->publish_state(true);
@@ -526,6 +522,7 @@ void HydronicS3::set_command(bool on) {
   this->command_until_ms_ = on ? 0 : millis() + COMMAND_OFF_MS;
   this->command_next_ms_ = millis();
   this->update_mode_();
+  this->schedule_burst_();
 }
 
 void HydronicS3::abort_command() {
@@ -605,12 +602,22 @@ void HydronicS3::drain_tx_() {
   }
 }
 
+// As the EasyStart at its power-up: config burst once, but only while we command — a
+// burst followed by silence makes the heater expect a control unit and raise P000307.
+void HydronicS3::schedule_burst_() {
+  if (this->burst_sent_ || this->burst_due_ms_ != 0 || !this->commanding_() || !this->connected() ||
+      this->easystart_present_())
+    return;
+  this->burst_due_ms_ = millis() + BURST_DELAY_MS;
+  this->burst_round_ = 0;
+}
+
 // Queues the burst round by round.
 void HydronicS3::burst_loop_() {
   const uint32_t now = millis();
   if (static_cast<int32_t>(now - this->burst_due_ms_) < 0)
     return;
-  if (this->easystart_present_() || !this->connected()) {  // not ours to send (any more)
+  if (this->easystart_present_() || !this->connected() || !this->commanding_()) {  // not ours to send (any more)
     this->burst_due_ms_ = 0;
     return;
   }
