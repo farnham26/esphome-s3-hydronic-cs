@@ -70,13 +70,19 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-11 ~11:15)
-- **EasyStart disconnected**; the Fire is the only controller (acks, `Heater Run` start/stop works, P000307 fixed).
-  User is fitting a Schottky diode (MBR3060PT) + inrush limiter + bleeder in the pump line (DC/DC converter in front
-  of the non-stock pump → P000252 start holds). Heater supply off meanwhile. Next: starts, read P000252 counter (115).
-- S+ relay and tempcontrol climate OFF.
-- Firmware = 9ea0f85 (start step, combustion state, control unit temp). Stored DTCs P000307/P000440 (ours, count 1)
-  can't be cleared by us (NRC 7F) → EasyStart menu sniff.
+## Session state (2026-10-11 ~14:45)
+- EasyStart **disconnected** (on the diagnostic connector, shared with our tap → termination conflict; must be
+  retired for the final wiring). Device firmware = 005740a (flashed). WiFi reachable, log level INFO.
+- Own control without EasyStart now solid: Heat (10:23), Fan (14:33), Residual heat = pump + vehicle fan (14:33)
+  all verified. Three P000307 fixes today (burst only while commanding; ack only while bus awake so our boot does
+  not wake the heater; answer every heater wake as control unit "off" until idle+15 s). Power-cycle 14:42: no 0x04.
+- Pump line fix (user HW: Schottky MBR3060PT + 1.2 kΩ bleeder heater side, no series R/NTC): **6/6 S+ starts no
+  hold, error memory empty**. Non-stock pump via DC/DC → P000252/P000250; see README pump section + schematic.
+- Error memory holds P000307/P000440 from pre-fix tests. **Clearing: only via the EasyStart workshop menu**
+  (session + documented unlock, back key on timer icon). I will NOT build the clear/unlock into firmware; leave as
+  a documented manual step / EasyStart-as-service-tool. Do not revisit.
+- 5 commits unpushed (the three P000307 fixes + residual-heat naming + TWAI doc). Push with id_ed25519_shasta8086,
+  ssh remote git@github.com:farnham26/esphome-s3-hydronic-cs.git; scan for secrets/serial/name first; master ff.
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
