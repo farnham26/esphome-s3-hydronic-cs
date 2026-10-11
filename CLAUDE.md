@@ -74,16 +74,13 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 - Decoded so far: `docs/research.md` (DID correlation, fuel, regulation curve FD33, phases, counters, DTC 19 06).
 
 ## Next steps
-1. Live test (heater asleep, S+ off, Fire listen-only until the heater's 2C4 appears):
-   a. Bus wake-up by the EasyStart: "wake" event + first 40 frames after ≥2 s silence. EasyStart IDs before
-      the heater's 2C4 boot frame → CAN wake; 2C4 first → separate wake line. Note REC/EFLG (unacked retries).
-   b. Start via EasyStart Pro (not S+): does the start hold (2C4 B2 0x40, P000252) occur too? Compare 054/625.
-   c. Cold start data with "Poll All DIDs": start counters, start fuel. Minimize ignitions (soot).
-   d. Disconnect/reconnect: heater supply off/on → "Heater Connected", values "--" after 15 s and back.
-2. Open DIDs: water pump power (FD08?), FD35 (temperature?), FD0F w2–5, FD13/14/16/1B/27, stored counters
-   (ignitions, glow plug switch-ons, flame-outs, overheats, run durations, start types), DTC 19 06 layout.
-3. Display: show the new values on the LVGL UI. Then clean-up for the S3 component (drop research tools,
-   raw sensors). Zero-loss: MCP2515 read in IRAM ISR before any control TX.
+1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
+   (timer in the EasyStart), polling state machine (heater sleeps), EasyStart back-off. See `docs/research.md`.
+2. Start/stop by us ("Heater" switch, REST `/switch/Heater/turn_on|turn_off`, API `heater_start|stop`) needs the
+   EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
+   whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
+3. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
+4. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
