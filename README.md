@@ -22,7 +22,7 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
   - coolant flow (estimated from power and ΔT while burning; coolant heat capacity set for a ~50 % glycol
     premix such as Alde Premixed G13, `COOLANT_J_PER_L_K`)
   - operating phase (check, cold/warm start, heating, control pause, run-down, shutdown, blocked), start progress,
-    combustion state (pre-glow / fuel / flame), flame, glow plug power
+    combustion state (no fuel / ignition / burning), flame, glow plug power
   - blower speed, metering pump rate, supply voltage, control unit temperature
   - operating hours per power band, control pause, altitude mode
   - hardware/software version, part and serial number
@@ -66,6 +66,7 @@ display never cost frames.
 | `components/mipi_spi/` | display driver fork that shares the SPI bus fairly with the CAN reader |
 | `esphome/hydronic-s3.yaml` | device configuration |
 | `esphome/ui/heater-ui.yaml` | LVGL user interface, shared with the SDL preview |
+| `esphome/timers.yaml`, `esphome/timers/` | optional heater timers (three slots, SNTP clock) |
 | `esphome/hydronic-s3-sdl.yaml` | UI preview on the PC (SDL), demo values |
 | `esphome/example-twai.yaml` | minimal integration on the ESP32's own CAN controller (TWAI), no MCP2515 |
 | `docs/research.md` | protocol research: frames, DIDs, phases, wake-up, start hold analysis |
@@ -98,6 +99,12 @@ All controls are in the web UI group **Heater Control**.
   only). A mode change while running takes effect with the next command frame.
 - **Heater Run Watchdog** (minutes): `0` = run until stopped (default). Above 0 the heater is stopped
   unless `turn_on` is repeated within that time, for controllers that should fail safe.
+- **Timers** (web UI group **Timers**, package `esphome/timers.yaml`, optional): three slots like the
+  EasyStart's — days (Mo-Fr, Sa-Su, Mo-Su or a single day), start time, mode, duration, active. Set
+  from HA or the web UI, run on the device (no HA needed once the clock has synced via SNTP). The
+  heater itself has no timer; the EasyStart runs its own.
+- **Clock**: with `time_id:` on `hydronic_s3` the heater gets our time (`10A`, as the EasyStart's
+  time setting).
 - A start hold (fault flag `0x40`) is retried up to three times, then the switch turns off.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).

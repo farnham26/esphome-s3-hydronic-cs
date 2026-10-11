@@ -1,0 +1,59 @@
+# One heater timer slot (vars: n), as the EasyStart's timer positions. Values survive reboots.
+switch:
+  - platform: template
+    id: timer${n}_active
+    name: "Timer ${n} Active"
+    icon: mdi:timer-outline
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    web_server:
+      sorting_group_id: group_timers
+
+select:
+  # Order matters: timers.yaml maps the index (EasyStart weekday groups, then single days).
+  - platform: template
+    id: timer${n}_days
+    name: "Timer ${n} Days"
+    icon: mdi:calendar-week
+    options: ["Mo-Fr", "Sa-Su", "Mo-Su", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    initial_option: "Mo-Fr"
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: group_timers
+  - platform: template
+    id: timer${n}_mode
+    name: "Timer ${n} Mode"
+    icon: mdi:tune-variant
+    options: ["Heat", "Residual heat", "Fan"]  # as "Heater Mode"
+    initial_option: "Heat"
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: group_timers
+
+datetime:
+  - platform: template
+    id: timer${n}_start
+    name: "Timer ${n} Start"
+    type: time
+    initial_value: "07:00"
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: group_timers
+
+number:
+  - platform: template
+    id: timer${n}_minutes
+    name: "Timer ${n} Duration"
+    icon: mdi:timer-sand
+    unit_of_measurement: min
+    min_value: 10
+    max_value: 720  # EasyStart maximum operating time
+    step: 5
+    initial_value: 30
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: group_timers

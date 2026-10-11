@@ -430,7 +430,7 @@ state 05 (glow only, no fuel). CAN = our command (EasyStart sequence, config bur
 | 11, 12 | +90–97 s | glow 79 → 49 W |
 | phase 14 | +100 s | burn, glow off, regulation |
 
-- **FD0F B1**: combustion state 01 pre-glow, 02 fuel on, 03 flame. B2–B5: two u16 around 30000 (±50), change at
+- **FD0F B1**: combustion state 01 no fuel (also idle, fan, residual, run-down), 02 ignition (fuel, no flame), 03 burning. B2–B5: two u16 around 30000 (±50), change at
   fuel-on and flame, meaning open.
 - **FD08 ≈ 20000 + 1.55 × blower rpm** (20000 during pre-glow while the water pump runs; 29950 at 6154 rpm):
   blower command/PWM, **not** the water pump. Water pump power still not found.
@@ -542,7 +542,8 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
 | B4 | mode, as `054` B1: **01 heat, 02 fan** (confirmed), 03 residual heat (expected) |
 | B5 | bit 7 = timer active, bits 0–6 = duration in minutes (`1E` = 30) |
 | B6 | change counter |
-- `10A` changes when entering the timer menu (`10 00 01 20 10 01` → `10 4E 40 22 10 01` → `10 4F 81 …`): open.
+- `10A` changes when entering the timer menu (`10 00 01 20 10 01` → `10 4E 40 22 10 01` → `10 4F 81 …`):
+  the clock, decoded 16:55–16:58 (see "Clock `10A` and timers").
 - Timer 3 confirmed 14:26:36: Sa+Su 12:00 fan 10 min → `069` `BE C0 2C 00 02 0A` (inactive) / `… 8A` (active).
 
 ## Own command: fan and residual heat (2026-10-11 14:33, EasyStart disconnected)
@@ -559,3 +560,30 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
   control-unit frames → flag 0x04 (P000307) after ~15 s (14:40:34). Fix: without an EasyStart, answer every wake
   with the "off" set (`60D`, `054 00 00`, `055`–`057`, `065`) until idle + 15 s, as the EasyStart does.
   Power cycle 14:42:46: wake, "off" presence, heater asleep ~14:43:03, **no 0x04**.
+
+## Clock `10A` and timers (2026-10-11 16:55–17:06, EasyStart settings menu)
+EasyStart Pro manual: the clock lives in the EasyStart (lost on power loss, only date/time to be reset);
+"Settings → Standard settings" sets time, 12/24 h, weekday. Each setting sends `10A` once (plus the
+timer frames' B6 counter); `10A` is repeated unchanged afterwards, no running clock on the bus.
+Steps: 10:00 → Thu → 17:54 → Sun: `10 02 40 2A` → `13 03 9A 2A` → `13 DB C0 31` → `16 DF 43 31` (B4–B5 `10 01`).
+| Byte | Bits | Meaning |
+|---|---|---|
+| B0 | 0–2 | weekday, Mon = 0 … Sun = 6 (power-up 0); bit 4 always set |
+| B1 | 2–7 | minute |
+| B1 | 0 / 1 | weekday set / time set (power-up `00`) |
+| B2 | 0–5 | second at sending |
+| B2 | 6–7 | change counter 1→2→3→1, in step with `067`–`069` B6 |
+| B3 | 0–4 | hour; bit 5 always set |
+- Fits the 10-11 14:21 frames (Mon 02:19 set, weekday confirmed 1 s later). 12 h format: not tested.
+- Timer weekday mask (`067` B1, bit 1 Mo … bit 7 Su) = bit (B0 weekday + 1).
+- **The heater does not run the timers**: timer 1 = Sun 18:02 Fan, EasyStart unplugged before, heater awake
+  (`2C4` state 03) at 18:02 → no start, no fan (17:05 Fire time). The EasyStart executes them; `067`–`06C`
+  are stored settings only. Per the manual three timer positions per heater, up to two heaters →
+  `06A`–`06C` likely timers 1–3 of a second heater.
+- Firmware: `10A` from an optional `time_id` in the config burst and on each clock sync while we command
+  (`clock_frame_()`); timers run in the firmware (`esphome/timers.yaml`).
+- **CAN wake fails while S+ is on** (17:17–17:24): heater powered up with S+ held on, asleep → our `60D`/`054`
+  never acked (2000+ aborts, TEC → 128), timer and manual start alike; S+ off → CAN wake + start at once
+  (17:25:15, 0.3 s). Unclear whether S+ "on" blocks the CAN wake or only S+ at power-up does. 16:59 burn = S+.
+- Firmware timer verified: timer 1 Sun 17:14 Fan → `Heater Run` on at 17:14:00.5, mode set (heater then
+  blocked in `C8` after the EasyStart session, cleared by a power cycle).

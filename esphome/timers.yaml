@@ -1,0 +1,73 @@
+# Heater timers (optional package): three slots like the EasyStart's (days, start, mode,
+# duration), set from HA or the web UI, run on the device; HA is not needed once the clock
+# (sntp_time) has synced. The heater has no timer of its own: the EasyStart runs them
+# (docs/research.md). A start is skipped while "Heater Run" is on; turning it off ends
+# the timer run. A "Heater Run Watchdog" > 0 still applies and may stop the run early.
+packages:
+  timer1: !include { file: timers/slot.yaml, vars: { n: 1 } }
+  timer2: !include { file: timers/slot.yaml, vars: { n: 2 } }
+  timer3: !include { file: timers/slot.yaml, vars: { n: 3 } }
+
+web_server:
+  sorting_groups:
+    - id: group_timers
+      name: "Timers"
+      sorting_weight: 6
+
+script:
+  - id: timer_run
+    mode: restart
+    parameters:
+      mode: string
+      minutes: int
+    then:
+      - logger.log:
+          format: "timer: %s for %d min"
+          args: ["mode.c_str()", "minutes"]
+      - select.set:
+          id: heater_mode
+          option: !lambda "return mode;"
+      - switch.turn_on: heater_command
+      - delay: !lambda "return minutes * 60000;"
+      - switch.turn_off: heater_command
+
+switch:
+  - id: !extend heater_command
+    on_turn_off:
+      - script.stop: timer_run
+
+time:
+  - id: !extend sntp_time
+    on_time:
+      - seconds: 0
+        then:
+          - lambda: |-
+              struct Slot {
+                switch_::Switch *active;
+                select::Select *days;
+                datetime::TimeEntity *start;
+                select::Select *mode;
+                number::Number *minutes;
+              };
+              const Slot slots[] = {
+                  {id(timer1_active), id(timer1_days), id(timer1_start), id(timer1_mode), id(timer1_minutes)},
+                  {id(timer2_active), id(timer2_days), id(timer2_start), id(timer2_mode), id(timer2_minutes)},
+                  {id(timer3_active), id(timer3_days), id(timer3_start), id(timer3_mode), id(timer3_minutes)},
+              };
+              const ESPTime now = id(sntp_time).now();
+              if (!now.is_valid() || id(heater_command).state)
+                return;
+              const int wd = (now.day_of_week + 5) % 7;  // Mon = 0 (ESPTime: 1 = Sunday)
+              for (const Slot &s : slots) {
+                const auto days = s.days->active_index();
+                const auto mode = s.mode->active_index();
+                if (!s.active->state || !days.has_value() || !mode.has_value() || s.start->hour != now.hour ||
+                    s.start->minute != now.minute)
+                  continue;
+                // Days options: Mo-Fr, Sa-Su, Mo-Su, then Mon..Sun.
+                const size_t d = *days;
+                if (!(d == 0 ? wd < 5 : d == 1 ? wd >= 5 : d == 2 ? true : int(d) - 3 == wd))
+                  continue;
+                id(timer_run).execute(std::string(s.mode->option_at(*mode)), int(s.minutes->state));
+                return;  // first matching slot wins
+              }
