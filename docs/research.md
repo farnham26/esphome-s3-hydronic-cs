@@ -475,5 +475,5 @@ interval set to 1000 h, then back to "off" (no UDS traffic at all; status comput
 Sensor selection → "control unit", temperature offset → +3 °C, sent together on confirm/menu exit:
 `063` `32 00 01 00 …` (morning) → `50 01 01 01 …`.
 - **B0 = temperature offset, (raw − 50) / 10 °C** (`32` = 0.0, `50` = +3.0) — to confirm with a second value.
-- **B3 = temperature sensor selection** (1 = control unit) — to confirm by setting it back.
-- B1: change counter (as `064` B1). B2 `01`: open.
+- 13:55:26 `50 00 01 02 …`: B1 01 → 00, B3 01 → 02 → **B3 = change counter** (0, 1, 2), **B1 = temperature
+  sensor selection** (1 = control unit, 0 = default) — B1 back to 0 (sensor set back?). B2 `01`: open.
