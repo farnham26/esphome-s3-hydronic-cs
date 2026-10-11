@@ -70,43 +70,38 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-11 ~16:00)
-- EasyStart **disconnected** (on the diagnostic connector, shared with our tap → termination conflict; must be
-  retired for the final wiring, so DTC clear had to move into firmware — see below). Device firmware = 7270522
-   (flashed 15:52). WiFi reachable, log level INFO.
-- Own control without EasyStart now solid: Heat (10:23), Fan (14:33), Residual heat = pump + vehicle fan (14:33)
-  all verified. Three P000307 fixes today (burst only while commanding; ack only while bus awake so our boot does
-  not wake the heater; answer every heater wake as control unit "off" until idle+15 s). Power-cycle 14:42: no 0x04.
-- Pump line fix (user HW: Schottky MBR3060PT + 1.2 kΩ bleeder heater side, no series R/NTC): **6/6 S+ starts no
-  hold, error memory empty**. Non-stock pump via DC/DC → P000252/P000250; see README pump section + schematic.
-- **Done: DTC clear built into firmware** (`HydronicS3::clear_dtc()`; session `10 61` → SecurityAccess
-  `27 65`/`27 66` → `14 FF FF FF`, standard UDS, decoded in `docs/research.md` "Delete error memory heater
-  decoded"). The seed/key themselves are heater-specific and kept **out of this repo** (not real security,
-  just not spread in the repo text): `clear_dtc()` calls `set_security_provider()` (public mechanism,
-  documented in `docs/research.md` "DTC clear: security provider" with a placeholder example), wired to the
-  real values by a local, untracked overlay (`on_boot` lambda). Without the overlay, `clear_dtc()` fails with
-  a clear logged/UI message; everything else (read-out, start/stop, polling) is unaffected. Wired to the
-  existing "Clear Fault Codes" button (which previously sent the bare `14 FF FF FF` with no unlock and got
-  NRC'd). Flashed and **confirmed working on the real heater, ~15:20**.
-- All pushed to origin/master (DTC-clear commits squashed + force-pushed 10-11, then README/doc follow-up).
+## Session state (2026-10-11 ~18:40)
+- EasyStart **disconnected** (to be retired for the final wiring). Device firmware = HEAD
+  (flashed ~18:20). WiFi reachable, log level INFO (runtime "Log Level" select for DEBUG).
+- Own control without EasyStart solid: Heat, Fan, Residual heat; CAN wake + start from sleep (0.3 s).
+- Pump line fix (Schottky MBR3060PT + 1.2 kΩ bleeder heater side): **no start hold since** (flag `0x40`).
+- DTC clear in firmware (`clear_dtc()`, SecurityAccess key via `set_security_provider()`, key not in repo).
+- **Clock `10A` decoded** (weekday/h/min/s, set flags, counter); optional `time_id` (SNTP) → sent in the config
+  burst (also when our run wakes the heater, fixed 10-11). **The heater runs no timers** (EasyStart does) →
+  firmware timers: optional package `esphome/timers.yaml` (3 slots, HA/web settable, verified).
+- Combustion names (FD0F B1: No fuel / Ignition / Burning); phase `0D` = pre-start purge.
+- **S+ vs CAN** (tested 18:02–18:15): S+ wins (CAN on ignored during S+, S+ off stops). No S+ bit found
+  (broadcasts, FD00–FD44, FEFF) → source inferred from FD10 B0; "Request Source" / "Heater Request" entities;
+  **Heater Run "on" refused while S+**, Heater Mode shows read-only "S+" (verified 18:31). S+ held on at power-up
+  = misuse (blocked `C8`, CAN wake fails) — not pursued.
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
    (timer in the EasyStart), polling state machine (heater sleeps), EasyStart back-off. See `docs/research.md`.
-2. Target: **replace the EasyStart completely**. Facets to test with it disconnected: heater alone at power-up
-   (needs config burst `05C`–`10A`?), `60D` keep-alive required/checked?, `054` B1 mode and `055`/`056`
-   (`10 27`) = power/setpoint?, run time (indefinite or heater cut-off), controller loss mid-run (timeout?),
-   lockout reset (DTC clear done, see session state), S+ coexistence and the S+ start hold.
+2. Target: **replace the EasyStart completely**. Still open with it disconnected: **run time** (> 30 min: indefinite
+   or heater cut-off?), **controller loss mid-run** (ESP reboot/OTA: timeout, P000307 lock?), `60D` keep-alive
+   required/checked?, `055`/`056` (`10 27`) = power/setpoint? Done: DTC clear, S+ coexistence, start hold.
 3. Start/stop by us ("Heater" switch, REST `/switch/Heater%20Run/turn_on|turn_off` (watchdog "Heater Run Watchdog", 0 = indefinite), API `heater_start|stop`) needs the
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
-   whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
+   whether the heater has its own max run time (config burst `05C`/`05F` = 30 = the EasyStart's duration preset?).
 4. **P000307** (CAN communication error control unit): raised when a controller goes silent mid-cycle (fixed:
    "off" until idle + 15 s; OTA during a CAN run accepted to raise it). Error memory cleared 10-11 13:48 via the
    EasyStart workshop menu (that capture is now the basis of `clear_dtc()`, see session state).
 5. Done 10-11 afternoon: pump fix verified (6/6 S+ starts, memory empty); EasyStart modes heat/fan/residual
    (`054` B1 01/02/03, state 05/21/81, phase 14/D2/DC) → "Heater Mode" select; vehicle blower relay = FEFF B17
-   bit 3 ("Vehicle Fan"); config frames `063`, `064`, timers `067`–`069` decoded (docs/research.md). Open there:
-   `05C`/`05F`, `062`/`06D`, `06A`–`06C`, `10A`, timer B0 — not reachable from the menu.
+   bit 3 ("Vehicle Fan"); config frames `063`, `064`, timers `067`–`069`, clock `10A` decoded (docs/research.md).
+   Open: `05D`–`062`/`06D`, `066`, timer B0 — not reachable from the menu; burst pairs likely heater 1 / heater 2.
+   S+ bit: not in broadcasts/FD00–FD44/FEFF; unscanned: other DID ranges, local IDs (`21`).
 6. Open DIDs: water pump power (FD08 is the blower), FD0F B2–B5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
 7. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a

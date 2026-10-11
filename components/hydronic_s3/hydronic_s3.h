@@ -113,12 +113,14 @@ class HydronicS3 : public Component {
   void set_ident_text_sensor(IdentText which, text_sensor::TextSensor *s) { this->ident_texts_[which] = s; }
   void set_phase_text_sensor(text_sensor::TextSensor *s) { this->phase_text_ = s; }
   void set_combustion_text_sensor(text_sensor::TextSensor *s) { this->combustion_text_ = s; }
+  void set_request_source_text_sensor(text_sensor::TextSensor *s) { this->request_source_text_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
   void set_flame_binary_sensor(binary_sensor::BinarySensor *s) { this->flame_ = s; }
   void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { this->connected_ = s; }
   void set_vehicle_fan_binary_sensor(binary_sensor::BinarySensor *s) { this->vehicle_fan_ = s; }
+  void set_request_binary_sensor(binary_sensor::BinarySensor *s) { this->request_ = s; }
 #endif
 
   /// Heater status frames received within the stale timeout.
@@ -127,6 +129,14 @@ class HydronicS3 : public Component {
   float outlet_temperature() const { return this->outlet_temp_c_; }
   int state() const { return this->state_; }
   int on_request() const { return this->on_request_raw_; }
+  /// Who the heater's switch-on request (FD10 B0) comes from; inferred, see update_request_().
+  enum RequestSource : uint8_t { REQUEST_NONE, REQUEST_CAN, REQUEST_S_PLUS, REQUEST_EASYSTART };
+  RequestSource request_source() const { return this->request_source_; }
+  static const char *request_source_name(RequestSource source);
+  /// The heater runs on a request that is not ours (S+ or an EasyStart).
+  bool external_request() const {
+    return this->request_source_ == REQUEST_S_PLUS || this->request_source_ == REQUEST_EASYSTART;
+  }
   /// 0x2C4 B2 while in fault or its ~26 s aftermath, 0 otherwise; -1 until received.
   int fault_code() const { return this->fault_code_; }
   static const char *state_name(int state);
@@ -160,6 +170,7 @@ class HydronicS3 : public Component {
   /// 100 ms, as recorded during an EasyStart run) with "on" (true) or "off"
   /// (false, continued while the heater runs down). Backs off for good as soon as an
   /// EasyStart frame appears: never two controllers on the bus. Normal mode meanwhile.
+  /// "On" is refused while the heater runs on S+ (request_source() == REQUEST_S_PLUS).
   void set_command(bool on);
   /// Watchdog: "on" stops (with "off") unless set_command(true) renews it within this
   /// time. 0: no watchdog, run until set_command(false).
@@ -232,6 +243,10 @@ class HydronicS3 : public Component {
   float outlet_temp_c_{NAN};
   int state_{-1};
   int on_request_raw_{-1};
+  RequestSource request_source_{REQUEST_NONE};
+  int request_raw_{-1};               // FD10 B0; -1: unknown
+  uint32_t command_change_ms_{0};     // last change of command_on_
+  void update_request_(int request);
   int command_raw_{-1};       // 0x054 B0 << 8 | B1
   int switch_input_raw_{-1};  // 0x625 B1
   std::vector<uint8_t> isotp_buf_;  // diagnostic response being reassembled
@@ -330,12 +345,14 @@ class HydronicS3 : public Component {
   text_sensor::TextSensor *ident_texts_[IDENT_COUNT]{};
   text_sensor::TextSensor *phase_text_{nullptr};
   text_sensor::TextSensor *combustion_text_{nullptr};
+  text_sensor::TextSensor *request_source_text_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};
   binary_sensor::BinarySensor *flame_{nullptr};
   binary_sensor::BinarySensor *connected_{nullptr};
   binary_sensor::BinarySensor *vehicle_fan_{nullptr};
+  binary_sensor::BinarySensor *request_{nullptr};
 #endif
 };
 

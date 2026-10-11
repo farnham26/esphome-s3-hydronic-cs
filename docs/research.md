@@ -592,3 +592,22 @@ Steps: 10:00 → Thu → 17:54 → Sun: `10 02 40 2A` → `13 03 9A 2A` → `13 
   `067`–`069` / `06A`–`06C`: heater 1 / 2, only the heater-1 copies changed in the menu).
 - Burst on wake fixed 17:4x: a run that woke the heater skipped the burst (`connected()` still false at the
   first `2C4`); seen at the 17:38 timer start.
+
+## S+ and CAN together (2026-10-11 18:02–18:15, EasyStart disconnected, S+ = tempcontrol relay)
+| Time | Action | Heater |
+|---|---|---|
+| 18:02:13 | S+ on | wake, start, flame 18:03:19; FD10 B0 `01` |
+| 18:04:50 | CAN on (054 `01 01`) | ignored: request stays S+'s |
+| 18:04:55 | S+ off | **shutdown** (`1E`), FD10 B0 `00` despite our `054 01 01` |
+| 18:06:32 | CAN on (fresh) | pause `28` (hot) → `0F` → **`0D` purge** → `0C` → flame 18:09:08 |
+| 18:13:09 / :14 | S+ on, CAN off | request stays (B0 `01`, S+); pause `1F` at 83 °C (regulation) |
+| 18:14:38 | S+ off | run-down, asleep 18:15:22 |
+- **S+ wins**: a CAN "on" during an S+ run is ignored, S+ off ends the run; CAN off during S+ does not.
+- **No S+ bit found**: broadcasts (`2C4`/`2C5`/`2C6`/`625`), FD00–FD44 (all polled, S+ / CAN / S+ windows) and FEFF
+  (2 S+ runs vs 1 CAN run) differ only in temperatures. FD10 B7 `01` also in a CAN run → not it. Unscanned: other DID
+  ranges, local IDs (`21`).
+- Firmware: request source inferred from FD10 B0 (EasyStart on bus / our "on" / else S+); "on" refused while S+.
+- **Phase `0D` = pre-start purge**: blower to ~6100 rpm, glow 0, no fuel, ~35 s, before a warm start after a
+  cut-short burn.
+- S+ held on at power-up = misuse (not pursued); the 17:02–17:24 `C8` was that (request pending, no `0x40`), and
+  the 17:00:34 shutdown was the EasyStart unplug (controller loss) with the S+ request still `01`.

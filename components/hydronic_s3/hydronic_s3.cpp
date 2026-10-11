@@ -37,7 +37,8 @@ static constexpr uint32_t ID_KEEPALIVE = 0x60D;  // EasyStart, 100 ms; its retri
 static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
 static constexpr uint32_t COMMAND_OFF_MS = 15000;  // after idle, as the EasyStart
-static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;  // 065, as the EasyStart after a wake
+static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;
+static constexpr uint32_t REQUEST_SETTLE_MS = 1000;  // FD10 B0 follows our command within ~0.2 s  // 065, as the EasyStart after a wake
 // EasyStart configuration burst, sent 4x (~150 ms apart) ~2 s after its power-up;
 // recorded 10-11, replayed once per boot when it is absent; 10A carries our clock if
 // one is configured (clock_frame_()).
@@ -149,6 +150,7 @@ static const PhaseName PHASES[] = {
     {0x0F, "Check", "Pre-start check"},  // ~2 s, 2C4 state 05/03/05 once, then the start
     {0x0A, "Cold start", "Start (cold)"},  // 13 °C: long pre-glow, flame after ~64 s
     {0x0C, "Warm start", "Start (warm)"},  // 50-70 °C: flame after ~15-65 s
+    {0x0D, "Purge", "Pre-start purge (blower only)"},  // ~35 s full blower, no glow/fuel, after a cut-short burn
     {0x14, "Heating", "Heating (burner on)"},
     {0x28, "Pause", "Control pause"},
     {0x1F, "Run-down", "Run-down to pause"},
@@ -157,6 +159,51 @@ static const PhaseName PHASES[] = {
     {0xDC, "Residual", "Residual heat (pump + fan)"},  // 054 B1 03, FD10 B0 04, 2C4 state 81
     {0xD2, "Fan", "Fan (vehicle fan only)"},  // 054 B1 02, FD10 B0 03, 2C4 state 21
 };
+
+const char *HydronicS3::request_source_name(RequestSource source) {
+  switch (source) {
+    case REQUEST_CAN:
+      return "CAN";
+    case REQUEST_S_PLUS:
+      return "S+";
+    case REQUEST_EASYSTART:
+      return "EasyStart";
+    default:
+      return "None";
+  }
+}
+
+// FD10 B0 is the request the heater acts on (01 heat, 03 fan, 04 residual heat, 00 none), from S+
+// and CAN alike; no polled DID or broadcast bit tells the source apart (10-11 S+/CAN series), so it
+// is inferred: an EasyStart's while one is on the bus, ours while we command "on", else S+.
+// Samples within REQUEST_SETTLE_MS of our own command change may show the old request: skipped.
+void HydronicS3::update_request_(int request) {
+  if (request >= 0 && millis() - this->command_change_ms_ < REQUEST_SETTLE_MS)
+    return;
+  const RequestSource source = request <= 0             ? REQUEST_NONE
+                               : this->easystart_present_() ? REQUEST_EASYSTART
+                               : this->command_on_          ? REQUEST_CAN
+                                                            : REQUEST_S_PLUS;
+  const bool changed = source != this->request_source_ || (request < 0) != (this->request_raw_ < 0);
+  if (source != this->request_source_)
+    this->event_("request", this->request_source_, source);
+  this->request_source_ = source;
+  this->request_raw_ = request;
+  if (!changed)
+    return;
+#ifdef USE_TEXT_SENSOR
+  if (this->request_source_text_ != nullptr)
+    this->request_source_text_->publish_state(request < 0 ? "" : request_source_name(source));
+#endif
+#ifdef USE_BINARY_SENSOR
+  if (this->request_ != nullptr) {
+    if (request < 0)
+      this->request_->invalidate_state();
+    else
+      this->request_->publish_state(request > 0);
+  }
+#endif
+}
 
 // FD0F B1, from observation (10-10/10-11, only 1-3 seen).
 const char *HydronicS3::combustion_name(int state) {
@@ -297,8 +344,10 @@ void HydronicS3::expire_stale_() {
     if (i == DID_COMBUSTION_STATE && this->combustion_text_ != nullptr)
       this->combustion_text_->publish_state("");
 #endif
-    if (i == DID_OPERATING_PHASE)
+    if (i == DID_OPERATING_PHASE) {
       this->phase_ = -1;
+      this->update_request_(-1);
+    }
   }
 #endif
 }
@@ -366,6 +415,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     ESP_LOGW(TAG, "EasyStart frame %03" PRIX32 " seen: command stopped", can_id);
     this->event_("cmd backoff", can_id, 0);
     this->command_on_ = false;
+    this->command_change_ms_ = millis();
     this->command_until_ms_ = 0;
     this->update_mode_();
   }
@@ -562,6 +612,12 @@ void HydronicS3::update_mode_() {
 }
 
 void HydronicS3::set_command(bool on) {
+  // S+ wins: the heater ignores a CAN "on" during an S+ run and stops at S+ off (10-11 18:04).
+  if (on && !this->command_on_ && this->request_source_ == REQUEST_S_PLUS) {
+    ESP_LOGW(TAG, "S+ requested: command ON refused");
+    this->event_("cmd refused", 0, 1);
+    return;
+  }
   if (on)
     this->command_deadline_ms_ = millis() + this->command_lease_ms_;
   if (on && this->command_on_) {
@@ -573,6 +629,7 @@ void HydronicS3::set_command(bool on) {
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on);
   this->command_on_ = on;
+  this->command_change_ms_ = millis();
   this->command_until_ms_ = on ? 0 : millis() + COMMAND_OFF_MS;
   this->command_next_ms_ = millis();
   this->update_mode_();
@@ -583,6 +640,7 @@ void HydronicS3::abort_command() {
   ESP_LOGW(TAG, "command aborted silently (research)");
   this->event_("cmd abort", this->command_on_, 0);
   this->command_on_ = false;
+  this->command_change_ms_ = millis();
   this->command_until_ms_ = 0;
   this->update_mode_();
 }
@@ -1122,6 +1180,7 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
           this->phase_ = d[1];
         }
         pub(DID_OPERATING_PHASE, d[1]);
+        this->update_request_(d[0]);
 #ifdef USE_TEXT_SENSOR
         if (this->phase_text_ != nullptr) {
           const char *name = phase_long_name(d[1]);

@@ -1,8 +1,9 @@
 # Heater timers (optional package): three slots like the EasyStart's (days, start, mode,
 # duration), set from HA or the web UI, run on the device; HA is not needed once the clock
 # (sntp_time) has synced. The heater has no timer of its own: the EasyStart runs them
-# (docs/research.md). A start is skipped while "Heater Run" is on; turning it off ends
-# the timer run. A "Heater Run Watchdog" > 0 still applies and may stop the run early.
+# (docs/research.md). A start is skipped while "Heater Run" is on or the heater runs on
+# S+ / an EasyStart; turning "Heater Run" off ends the timer run. A "Heater Run Watchdog" > 0
+# still applies and may stop the run early.
 packages:
   timer1: !include { file: timers/slot.yaml, vars: { n: 1 } }
   timer2: !include { file: timers/slot.yaml, vars: { n: 2 } }
@@ -55,7 +56,7 @@ time:
                   {id(timer3_active), id(timer3_days), id(timer3_start), id(timer3_mode), id(timer3_minutes)},
               };
               const ESPTime now = id(sntp_time).now();
-              if (!now.is_valid() || id(heater_command).state)
+              if (!now.is_valid() || id(heater_command).state || id(heater).external_request())
                 return;
               const int wd = (now.day_of_week + 5) % 7;  // Mon = 0 (ESPTime: 1 = Sunday)
               for (const Slot &s : slots) {
