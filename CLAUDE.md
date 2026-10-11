@@ -17,6 +17,8 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
 |---|---|
 | `components/hydronic_s3/` | The component: broadcast + UDS DID decoding, polling state machine (heater may sleep), start/stop in place of the EasyStart (wake, command set, config burst, retry, watchdog), TX queue, research tools (scans, ID table, wake trace). |
 | `esphome/hydronic-s3.yaml` | Device config: Fire + COMMU, component, HA entities (web UI groups: Heater Control, Heater, Components, Counters, CAN, Debug). |
+| `esphome/research.yaml` | Research package (ID table via `research: true`, scans, UDS console, raw DIDs); drop for production. |
+| `esphome/example-twai.yaml` | Minimal integration on TWAI (`esp32_can`), no listen-only hook, bus-off recovery — template for tempcontrol. |
 | `esphome/ui/heater-ui.yaml` | LVGL UI (fonts, styles, pages), shared by the device and the SDL preview. |
 | `esphome/hydronic-s3-sdl.yaml` | SDL preview of the UI on the host (demo values); screenshots via `import -window` on XWayland. |
 | `README.md`, `docs/img/` | Human-facing README with screenshots (web UI: headless Chrome `--timeout=35000`; LCD: SDL). |
@@ -97,7 +99,9 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 7. Published: `origin` = github.com/farnham26/esphome-s3-hydronic-cs (GPLv3, SSH key `id_ed25519_shasta8086`,
    author `farnham26`). History scrubbed of dealer-tool material, heater serial, internal URLs — keep it that way.
    Web screenshots: redact the "Heater Serial Number" row before committing.
-8. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
+8. Clean-up done 10-11: listen-only hook optional, `research:` switch, research package + `hydronic_s3_research.cpp`,
+   TWAI example compiles. tempcontrol will include the component on TWAI (S+/running lines become CAN). Open:
+   zero-loss MCP2515 read in an IRAM ISR (Fire only).
 
 ## Safety
 - Start trials: each aborted start (even at 4 s) costs one fuel pump stroke → after at most 5 aborted starts do one
