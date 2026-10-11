@@ -508,7 +508,7 @@ void HydronicS3::set_command(bool on) {
   if (on)
     this->command_deadline_ms_ = millis() + this->command_lease_ms_;
   if (on && this->command_on_) {
-    ESP_LOGD(TAG, "command lease renewed");
+    ESP_LOGD(TAG, "run watchdog renewed");
     return;
   }
   this->start_retries_ = 0;
@@ -531,8 +531,9 @@ void HydronicS3::abort_command() {
 
 void HydronicS3::command_loop_() {
   const uint32_t now = millis();
-  if (this->command_on_ && static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
-    ESP_LOGW(TAG, "command lease expired: off");
+  if (this->command_on_ && this->command_lease_ms_ != 0 &&
+      static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
+    ESP_LOGW(TAG, "run watchdog expired: off");
     this->set_command(false);
   }
   if (!this->command_on_ && static_cast<int32_t>(now - this->command_until_ms_) >= 0) {

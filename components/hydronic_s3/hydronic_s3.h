@@ -130,7 +130,8 @@ class HydronicS3 : public Component {
   /// (false). Backs off for good as soon as an EasyStart frame appears: never two
   /// controllers on the bus. Normal mode meanwhile.
   void set_command(bool on);
-  /// "On" stops (with "off") unless set_command(true) renews it within this time.
+  /// Watchdog: "on" stops (with "off") unless set_command(true) renews it within this
+  /// time. 0: no watchdog, run until set_command(false).
   void set_command_lease(uint32_t ms) { this->command_lease_ms_ = ms; }
   /// Research: stops sending at once, without "off" (controller loss).
   void abort_command();
@@ -215,7 +216,7 @@ class HydronicS3 : public Component {
   bool command_on_{false};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
-  uint32_t command_lease_ms_{30 * 60 * 1000};
+  uint32_t command_lease_ms_{0};
   uint32_t command_deadline_ms_{0};
   uint8_t start_retries_{0};      // start holds retried for the current "on"
   uint32_t retry_until_ms_{0};    // "off" until then (start hold retry); 0: none

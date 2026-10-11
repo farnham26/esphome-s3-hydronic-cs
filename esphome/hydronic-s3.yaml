@@ -55,7 +55,7 @@ logger:
 api:
   encryption:
     key: !secret api_key
-  # Heater start/stop for tempcontrol / HA (REST: POST /switch/Heater/turn_on|turn_off).
+  # Heater start/stop for tempcontrol / HA (REST: POST /switch/Heater%20Run/turn_on|turn_off).
   actions:
     - action: heater_start
       then:
@@ -677,7 +677,7 @@ switch:
   # Reads back off when the component backs off (EasyStart frames seen). Off after boot.
   - platform: template
     id: heater_command
-    name: "Heater"
+    name: "Heater Run"
     icon: mdi:fire
     lambda: "return id(heater).command_on();"
     restore_mode: ALWAYS_OFF
@@ -717,15 +717,17 @@ text:
       sorting_group_id: group_debug
 
 number:
-  # Heater switch fail-safe: "on" ends unless renewed (turn_on again) within this time.
+  # "Heater Run" watchdog: 0 = run until turned off (default); > 0: turn_on must be
+  # repeated within this many minutes, else the heater is stopped.
   - platform: template
     id: heater_lease
-    name: "Heater Lease"
+    name: "Heater Run Watchdog"
+    icon: mdi:timer-cog-outline
     unit_of_measurement: min
-    min_value: 1
+    min_value: 0
     max_value: 600
     step: 1
-    initial_value: 30
+    initial_value: 0
     optimistic: true
     restore_value: true
     web_server:

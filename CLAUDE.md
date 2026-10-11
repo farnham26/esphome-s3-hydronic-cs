@@ -80,7 +80,7 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    (needs config burst `05C`–`10A`?), `60D` keep-alive required/checked?, `054` B1 mode and `055`/`056`
    (`10 27`) = power/setpoint?, run time (indefinite or heater cut-off), controller loss mid-run (timeout?),
    DTC read/clear and lockout reset, S+ coexistence and the S+ start hold.
-3. Start/stop by us ("Heater" switch, REST `/switch/Heater/turn_on|turn_off`, API `heater_start|stop`) needs the
+3. Start/stop by us ("Heater" switch, REST `/switch/Heater%20Run/turn_on|turn_off` (watchdog "Heater Run Watchdog", 0 = indefinite), API `heater_start|stop`) needs the
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
    whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
 4. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
