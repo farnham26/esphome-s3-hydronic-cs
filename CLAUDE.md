@@ -74,8 +74,12 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 - Decoded so far: `docs/research.md` (DID correlation, fuel, regulation curve FD33, phases, counters, DTC 19 06).
 
 ## Next steps
-1. Cold start tomorrow (S+ on) with "Poll All DIDs": start counters, start fuel, possible start hold (P000252
-   occurred ~105×, last with loop ~40 °C). Minimize ignitions (soot).
+1. Live test (heater asleep, S+ off, Fire listen-only until the heater's 2C4 appears):
+   a. Bus wake-up by the EasyStart: "wake" event + first 40 frames after ≥2 s silence. EasyStart IDs before
+      the heater's 2C4 boot frame → CAN wake; 2C4 first → separate wake line. Note REC/EFLG (unacked retries).
+   b. Start via EasyStart Pro (not S+): does the start hold (2C4 B2 0x40, P000252) occur too? Compare 054/625.
+   c. Cold start data with "Poll All DIDs": start counters, start fuel. Minimize ignitions (soot).
+   d. Disconnect/reconnect: heater supply off/on → "Heater Connected", values "--" after 15 s and back.
 2. Open DIDs: water pump power (FD08?), FD35 (temperature?), FD0F w2–5, FD13/14/16/1B/27, stored counters
    (ignitions, glow plug switch-ons, flame-outs, overheats, run durations, start types), DTC 19 06 layout.
 3. Display: show the new values on the LVGL UI. Then clean-up for the S3 component (drop research tools,
