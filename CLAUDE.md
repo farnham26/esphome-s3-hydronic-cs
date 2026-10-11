@@ -76,14 +76,18 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
    (timer in the EasyStart), polling state machine (heater sleeps), EasyStart back-off. See `docs/research.md`.
-2. Start/stop by us ("Heater" switch, REST `/switch/Heater/turn_on|turn_off`, API `heater_start|stop`) needs the
+2. Target: **replace the EasyStart completely**. Facets to test with it disconnected: heater alone at power-up
+   (needs config burst `05C`–`10A`?), `60D` keep-alive required/checked?, `054` B1 mode and `055`/`056`
+   (`10 27`) = power/setpoint?, run time (indefinite or heater cut-off), controller loss mid-run (timeout?),
+   DTC read/clear and lockout reset, S+ coexistence and the S+ start hold.
+3. Start/stop by us ("Heater" switch, REST `/switch/Heater/turn_on|turn_off`, API `heater_start|stop`) needs the
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
    whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
-3. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
-4. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
+4. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
+5. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
    real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
-5. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
+6. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
