@@ -46,6 +46,8 @@ static constexpr uint8_t NRC_RESPONSE_PENDING = 0x78;
 static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 static constexpr uint8_t STATE_FAULT = 0x0B;
 static constexpr uint32_t STALE_MS = 15000;  // no update for 3 poll sweeps: value unknown
+static constexpr uint32_t WAKE_SILENCE_MS = 2000;  // bus silent this long: log the wake-up
+static constexpr uint8_t WAKE_TRACE_FRAMES = 40;
 
 static float decode_temperature(const std::vector<uint8_t> &data, size_t offset) {
   const uint16_t raw = data[offset] | data[offset + 1] << 8;
@@ -123,6 +125,12 @@ void HydronicS3::expire_stale_() {
     // Re-read the identification on reconnect: it may be another heater.
     this->ident_dids_ = {0xF193, 0xF195, 0xF1F0, 0xF1F5};
     this->isotp_len_ = 0;
+    // Listen-only while the heater is away: do not ack (and so alter) a wake-up by
+    // another node, and do not wake the heater with our requests.
+    if (this->polling_) {
+      this->scan_active_ = this->scan_awaiting_ = false;
+      this->update_mode_();
+    }
     this->outlet_temp_c_ = NAN;
     this->state_ = -1;
     this->fault_code_ = -1;
@@ -178,6 +186,25 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   const uint8_t len = data.size() > 8 ? 8 : data.size();
   char buf[25];
   this->frames_++;
+  if (this->frames_ == 1 || now - this->last_frame_ms_ >= WAKE_SILENCE_MS) {
+    char ev[48];
+    snprintf(ev, sizeof(ev), "%u.%03u wake %03" PRIX32 " after %u s", (unsigned) (now / 1000), (unsigned) (now % 1000),
+             can_id, this->frames_ == 1 ? 0u : (unsigned) ((now - this->last_frame_ms_) / 1000));
+    ESP_LOGI(TAG, "event %s", ev);
+#ifdef USE_TEXT_SENSOR
+    if (this->event_text_ != nullptr)
+      this->event_text_->publish_state(ev);
+#endif
+    this->wake_ms_ = now;
+    this->wake_trace_ = WAKE_TRACE_FRAMES;
+  }
+  this->last_frame_ms_ = now;
+  if (this->wake_trace_ != 0) {
+    this->wake_trace_--;
+    hex(buf, data.data(), len);
+    ESP_LOGI(TAG, "wake +%5" PRIu32 "ms %0*" PRIX32 " [%u] %s", now - this->wake_ms_, ext ? 8 : 3, can_id, len,
+             rtr ? "RTR" : buf);
+  }
   if (this->tx_down_) {
     this->tx_down_ = false;
     this->poll_next_ms_ = now;
@@ -240,6 +267,8 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     if (this->status_ms_ == 0) {
       ESP_LOGI(TAG, "heater connected");
       this->event_("connected", 0, 1);
+      if (this->polling_ && this->listen_only_hook_(false))
+        this->poll_next_ms_ = millis();
 #ifdef USE_BINARY_SENSOR
       if (this->connected_ != nullptr)
         this->connected_->publish_state(true);
@@ -365,7 +394,7 @@ void HydronicS3::send_uds_request(const std::string &hex) {
 
 void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
   if (this->polling_ || this->scan_active_ || dids.empty() || !this->listen_only_hook_ ||
-      !this->listen_only_hook_(false))
+      (this->connected() && !this->listen_only_hook_(false)))
     return;
   this->poll_dids_ = std::move(dids);
   this->poll_interval_ms_ = interval_ms;
@@ -378,14 +407,20 @@ void HydronicS3::stop_polling() {
   if (!this->polling_)
     return;
   this->polling_ = false;
-  if (!this->scan_active_) {
-    this->diag_requested_ = false;
-    this->listen_only_hook_(true);
-  }
+  this->scan_active_ = this->scan_awaiting_ = false;  // a sweep in progress
+  this->diag_requested_ = false;
+  this->update_mode_();
+}
+
+// Normal mode only while something needs to send: polling a connected heater, a
+// range scan, or a single request's answer window. Listen-only otherwise.
+void HydronicS3::update_mode_() {
+  const bool normal = (this->polling_ && this->connected()) || this->scan_active_ || this->single_until_ms_ != 0;
+  this->listen_only_hook_(!normal);
 }
 
 void HydronicS3::loop() {
-  if (this->polling_ && !this->scan_active_ && !this->tx_down_ && static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
+  if (this->polling_ && this->connected() && !this->scan_active_ && !this->tx_down_ && static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
     // Start a sweep over the list (reuses the scan state machine).
     this->poll_next_ms_ = millis() + this->poll_interval_ms_;
     this->scan_service_ = 0x22;
@@ -400,7 +435,7 @@ void HydronicS3::loop() {
   if (this->single_until_ms_ != 0 && static_cast<int32_t>(millis() - this->single_until_ms_) >= 0) {
     this->single_until_ms_ = 0;
     this->diag_requested_ = false;
-    this->listen_only_hook_(true);
+    this->update_mode_();
   }
   if (!this->scan_active_)
     return;
@@ -418,7 +453,7 @@ void HydronicS3::loop() {
   if (this->scan_next_ > this->scan_last_) {
     this->scan_active_ = false;
     this->diag_requested_ = false;
-    this->listen_only_hook_(true);
+    this->update_mode_();
     char buf[160];
     const unsigned answered = this->scan_positive_ + this->scan_negative_;
     int n = snprintf(buf, sizeof(buf), "scan %02X done: %u positive, %u negative, %u silent, answer avg %u ms max %u ms, NRC",
@@ -455,7 +490,7 @@ void HydronicS3::send_failed_() {
   this->diag_requested_ = false;
   this->isotp_len_ = 0;
   if (!this->polling_) {
-    this->listen_only_hook_(true);
+    this->update_mode_();
     this->publish_diag_("scan aborted: send failed");
   } else if (!this->tx_down_) {
     ESP_LOGW(TAG, "send failed, polling paused until frames are received");

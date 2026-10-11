@@ -151,11 +151,15 @@ class HydronicS3 : public Component {
   void decode_did_(uint16_t did, const uint8_t *d, size_t n);
   void expire_stale_();
   void send_failed_();
+  void update_mode_();
 
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
   uint32_t frames_{0};
   uint32_t dumped_frames_{UINT32_MAX};  // frames_ at the last ID dump
+  uint32_t last_frame_ms_{0};
+  uint32_t wake_ms_{0};      // first frame after bus silence
+  uint8_t wake_trace_{0};    // frames of the wake-up still to log
 
   float outlet_temp_c_{NAN};
   int state_{-1};
