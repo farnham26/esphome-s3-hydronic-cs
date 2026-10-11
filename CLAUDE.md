@@ -100,5 +100,7 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 8. Clean-up for the S3 component (drop research tools, raw sensors). Zero-loss: MCP2515 read in IRAM ISR.
 
 ## Safety
+- Start trials: each aborted start (even at 4 s) costs one fuel pump stroke → after at most 5 aborted starts do one
+  run until warm (≥ 5 min after flame) to burn off the fuel. Minimize ignitions on a cold heater (soot).
 Combustion heater: never send frames until the passive decode is solid; keep independent power cut;
 emulating EasyStart identity alongside the real one can trigger P000342 / lock the control box.
