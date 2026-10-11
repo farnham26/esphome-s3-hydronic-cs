@@ -111,26 +111,36 @@ const char *HydronicS3::state_name(int state) {
   }
 }
 
+// FD10 B1, names from observation: {code, short (display chip), long}.
+struct PhaseName {
+  uint8_t code;
+  const char *name;
+  const char *long_name;
+};
+static const PhaseName PHASES[] = {
+    {0x00, "Off", "Off"},
+    {0x0F, "Check", "Pre-start check"},  // ~2 s, 2C4 state 05/03/05 once, then the start
+    {0x0A, "Cold start", "Start (cold)"},  // 13 °C: long pre-glow, flame after ~64 s
+    {0x0C, "Warm start", "Start (warm)"},  // 50-70 °C: flame after ~15-65 s
+    {0x14, "Heating", "Heating (burner on)"},
+    {0x28, "Pause", "Control pause"},
+    {0x1F, "Run-down", "Run-down to pause"},
+    {0x1E, "Shutdown", "Run-down (switched off)"},
+    {0xC8, "Blocked", "Blocked (see fault codes)"},  // start hold (P000252/P000250), also after P000307
+};
+
 const char *HydronicS3::phase_name(int phase) {
-  switch (phase) {
-    case 0x00:
-      return "Off";
-    case 0x0A:  // cold start (13 °C): long glow, flame after ~64 s
-    case 0x0C:  // warm start (56-70 °C): flame after ~15-60 s
-    case 0x0F:  // pre-start check (~2 s, 2C4 state 05/03/05 once), then 0x0C
-      return "Start";
-    case 0x14:
-      return "Burn";
-    case 0x1E:
-    case 0x1F:
-      return "Run-down";
-    case 0x28:
-      return "Pause";
-    case 0xC8:  // start hold (2C4 B2 0x40, P000252)
-      return "Hold";
-    default:
-      return nullptr;
-  }
+  for (const auto &p : PHASES)
+    if (p.code == phase)
+      return p.name;
+  return nullptr;
+}
+
+const char *HydronicS3::phase_long_name(int phase) {
+  for (const auto &p : PHASES)
+    if (p.code == phase)
+      return p.long_name;
+  return nullptr;
 }
 
 static void hex(char *out, const uint8_t *d, uint8_t len) {
@@ -223,9 +233,18 @@ void HydronicS3::expire_stale_() {
     this->flame_->invalidate_state();
 #endif
 #ifdef USE_SENSOR
-  for (size_t i = 0; i < DID_SENSOR_COUNT; i++)
-    if (stale(this->did_ms_[i]) && this->did_sensors_[i] != nullptr)
+  for (size_t i = 0; i < DID_SENSOR_COUNT; i++) {
+    if (!stale(this->did_ms_[i]))
+      continue;
+    if (this->did_sensors_[i] != nullptr)
       this->did_sensors_[i]->publish_state(NAN);
+#ifdef USE_TEXT_SENSOR
+    if (i == DID_OPERATING_PHASE && this->phase_text_ != nullptr)
+      this->phase_text_->publish_state("");
+#endif
+    if (i == DID_OPERATING_PHASE)
+      this->phase_ = -1;
+  }
 #endif
 }
 
@@ -956,8 +975,24 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         pub(DID_METERING_PUMP_RATE, d[0] / 10.0f);
       break;
     case 0xFD10:
-      if (n >= 2)
+      if (n >= 2) {
+        if (d[1] != this->phase_) {
+          this->event_("phase", this->phase_, d[1]);
+          if (phase_name(d[1]) == nullptr)
+            ESP_LOGW(TAG, "unknown phase 0x%02X (FD10: %02X %02X ...)", d[1], d[0], d[1]);
+          this->phase_ = d[1];
+        }
         pub(DID_OPERATING_PHASE, d[1]);
+#ifdef USE_TEXT_SENSOR
+        if (this->phase_text_ != nullptr) {
+          const char *name = phase_long_name(d[1]);
+          char buf[8];
+          snprintf(buf, sizeof(buf), "0x%02X", d[1]);
+          if (this->phase_text_->state != (name != nullptr ? name : buf))
+            this->phase_text_->publish_state(name != nullptr ? name : buf);
+        }
+#endif
+      }
       if (n >= 3)
         pub(DID_START_STEP, d[2]);
       break;

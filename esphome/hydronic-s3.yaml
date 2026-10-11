@@ -674,6 +674,10 @@ text_sensor:
       name: "Heater Fault"
       web_server:
         sorting_group_id: group_heater
+    operating_phase_text:
+      name: "Operating Phase Text"
+      web_server:
+        sorting_group_id: group_heater
     fault_codes:
       name: "Heater Fault Codes"
       web_server:

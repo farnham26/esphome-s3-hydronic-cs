@@ -14,7 +14,7 @@ esphome:
             lv_label_set_text(id(lbl_dt), "ΔT 7.2 K");
             lv_bar_set_value(id(bar_power), 3450, LV_ANIM_OFF);
             lv_label_set_text(id(lbl_power), "3450 W  ·  0.40 l/h");
-            lv_label_set_text(id(lbl_phase), "Burn");
+            lv_label_set_text(id(lbl_phase), "Heating");
             lv_obj_set_style_bg_color(id(chip_phase), lv_color_hex(0xC05000), 0);
             lv_label_set_text(id(lbl_flame), "FLAME");
             lv_obj_set_style_bg_color(id(chip_flame), lv_color_hex(0xC02818), 0);

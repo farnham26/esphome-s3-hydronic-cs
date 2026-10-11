@@ -19,7 +19,7 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
   polled only while the heater is active, so the bus and the heater can go to sleep:
   - outlet / inlet temperature, ΔT, flame sensor temperature
   - heating power and fuel consumption (from the metering pump), total fuel burnt
-  - operating phase (cold/warm start, burn, control pause, run-down, hold), start progress (sub-step),
+  - operating phase (check, cold/warm start, heating, control pause, run-down, shutdown, blocked), start progress,
     combustion state (pre-glow / fuel / flame), flame, glow plug power
   - blower speed, metering pump rate, supply voltage, control unit temperature
   - operating hours per power band, control pause, altitude mode
@@ -102,7 +102,7 @@ If you drive a **different coolant pump** from the heater's pump output — espe
 converter** (e.g. to protect a lower-voltage pump) — the heater may refuse starts at random:
 
 - **Symptom:** after a start request the heater stays idle; `2C4` byte 2 carries flag `0x40`, the phase reads
-  `0xC8` ("Hold" in this firmware). Switching off and on again 1–3 times usually gets it going. It happens with
+  `0xC8` ("Blocked" in this firmware). Switching off and on again 1–3 times usually gets it going. It happens with
   S+, the EasyStart and CAN starts alike, warm or cold.
 - **Diagnosis:** each hold stores **P000252** ("water pump: short to +Ub or transistor error"); its occurrence
   counter (`19 06 00 02 52 FF`) goes up by exactly one per hold. Our unit had ~110 of them.

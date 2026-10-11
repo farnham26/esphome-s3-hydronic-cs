@@ -94,6 +94,7 @@ class HydronicS3 : public Component {
   void set_fault_codes_text_sensor(text_sensor::TextSensor *s) { this->fault_codes_text_ = s; }
   void set_diag_response_text_sensor(text_sensor::TextSensor *s) { this->diag_response_text_ = s; }
   void set_ident_text_sensor(IdentText which, text_sensor::TextSensor *s) { this->ident_texts_[which] = s; }
+  void set_phase_text_sensor(text_sensor::TextSensor *s) { this->phase_text_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
@@ -113,6 +114,8 @@ class HydronicS3 : public Component {
   static const char *state_name(int state);
   /// FD10 B1 operating phase; nullptr if unknown.
   static const char *phase_name(int phase);
+  /// FD10 B1 operating phase, descriptive; nullptr if unknown.
+  static const char *phase_long_name(int phase);
   /// Sends UDS ReadDTCInformation (19 02 <mask>) as the EasyStart's error-memory
   /// readout does. The bus controller must be out of listen-only mode.
   void request_fault_codes(uint8_t status_mask);
@@ -214,6 +217,7 @@ class HydronicS3 : public Component {
   uint32_t scan_rtt_max_ms_{0};
   void scan_answered_();
   int fault_code_{-1};
+  int phase_{-1};  // FD10 B1, last seen
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
   uint32_t status_ms_{0}, controller_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};
@@ -270,6 +274,7 @@ class HydronicS3 : public Component {
   text_sensor::TextSensor *fault_codes_text_{nullptr};
   text_sensor::TextSensor *diag_response_text_{nullptr};
   text_sensor::TextSensor *ident_texts_[IDENT_COUNT]{};
+  text_sensor::TextSensor *phase_text_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};
