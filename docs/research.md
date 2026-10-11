@@ -476,4 +476,5 @@ Sensor selection → "control unit", temperature offset → +3 °C, sent togethe
 `063` `32 00 01 00 …` (morning) → `50 01 01 01 …`.
 - **B0 = temperature offset, (raw − 50) / 10 °C** (`32` = 0.0, `50` = +3.0) — to confirm with a second value.
 - 13:55:26 `50 00 01 02 …`: B1 01 → 00, B3 01 → 02 → **B3 = change counter** (0, 1, 2), **B1 = temperature
-  sensor selection** (1 = control unit, 0 = default) — B1 back to 0 (sensor set back?). B2 `01`: open.
+  sensor selection, 0 = none, 1 = control unit** (confirmed: set back to "none"). B2 `01`: open.
+- Frames are sent on confirming a setting (`064` within seconds of each change), not only on menu exit.
