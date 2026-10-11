@@ -128,6 +128,10 @@ class HydronicS3 : public Component {
   /// Sends UDS ReadDTCInformation (19 02 <mask>) as the EasyStart's error-memory
   /// readout does. The bus controller must be out of listen-only mode.
   void request_fault_codes(uint8_t status_mask);
+  /// Session + SecurityAccess unlock, then ClearDiagnosticInformation (14 FF FF FF).
+  /// The key comes from set_security_provider(); aborts (logged) on any negative
+  /// response, timeout, or no/refusing provider.
+  void clear_dtc();
   /// Reads DIDs first..last one by one with UDS ReadDataByIdentifier (22); positive
   /// answers go to the diag_response text sensor. The bus controller is taken out of
   /// listen-only mode for the scan through the listen-only hook.
@@ -165,6 +169,13 @@ class HydronicS3 : public Component {
   }
   /// Switches the bus controller between listen-only (true) and normal mode.
   void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }
+  /// Supplies the SecurityAccess key for a given seed, for clear_dtc() only. Returns
+  /// false to refuse (unknown seed, no key available). The heater-specific unlock
+  /// material is not in this repo: register this from a local config (e.g. an on_boot
+  /// lambda, see docs/research.md "DTC clear: security provider"); without one,
+  /// clear_dtc() fails with a clear message and nothing else is affected.
+  using SecurityProvider = std::function<bool(const uint8_t seed[4], uint8_t key_out[4])>;
+  void set_security_provider(SecurityProvider provider) { this->security_provider_ = std::move(provider); }
 
   void setup() override;
   void loop() override;
@@ -185,6 +196,12 @@ class HydronicS3 : public Component {
   void event_(const char *what, int from, int to);
   void diag_response_(const std::vector<uint8_t> &data);
   void uds_(const std::vector<uint8_t> &payload);
+  void clear_send_(const std::vector<uint8_t> &payload);
+  void clear_abort_(const char *why);
+  void clear_step_response_(const std::vector<uint8_t> &payload);
+  uint8_t clear_step_{0};  // CLEAR_IDLE..CLEAR_WAIT_CLEAR, see hydronic_s3.cpp
+  uint32_t clear_deadline_ms_{0};
+  SecurityProvider security_provider_;
   void decode_did_(uint16_t did, const uint8_t *d, size_t n);
   void expire_stale_();
   void send_failed_();

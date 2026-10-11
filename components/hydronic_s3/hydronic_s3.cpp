@@ -85,6 +85,13 @@ static constexpr uint32_t DIAG_TIMEOUT_MS = 200;
 static constexpr uint32_t DIAG_PENDING_TIMEOUT_MS = 2000;  // after NRC 0x78 "response pending"
 static constexpr uint8_t NRC_RESPONSE_PENDING = 0x78;
 static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
+// Session (10 61) + SecurityAccess (27 65/66) + ClearDiagnosticInformation, as sniffed
+// from the EasyStart's workshop menu (docs/research.md "EasyStart workshop menu").
+// The seed check and key are heater-specific and deliberately not in this repo:
+// clear_dtc() asks the registered security_provider_ (set_security_provider()) for
+// the key, and fails with a clear message if none is registered.
+static constexpr uint32_t CLEAR_STEP_TIMEOUT_MS = 1000;
+enum : uint8_t { CLEAR_IDLE = 0, CLEAR_WAIT_SESSION, CLEAR_WAIT_SEED, CLEAR_WAIT_KEY, CLEAR_WAIT_CLEAR };
 static constexpr uint8_t STATE_FAULT = 0x0B;
 static constexpr uint32_t STALE_MS = 15000;  // no update for 3 poll sweeps: value unknown
 static constexpr uint32_t WAKE_SILENCE_MS = 2000;  // bus silent this long: log the wake-up
@@ -651,7 +658,9 @@ void HydronicS3::loop() {
   if (this->commanding_())
     this->command_loop_();
   this->drain_tx_();
-  if (this->poll_wanted_() && !this->scan_active_ && !this->tx_down_ &&
+  if (this->clear_step_ != CLEAR_IDLE && static_cast<int32_t>(millis() - this->clear_deadline_ms_) >= 0)
+    this->clear_abort_("timeout");
+  if (this->poll_wanted_() && !this->scan_active_ && !this->tx_down_ && this->clear_step_ == CLEAR_IDLE &&
       static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
     // Start a sweep over the list (reuses the scan state machine).
     this->poll_next_ms_ = millis() + this->poll_interval_ms_;
@@ -763,6 +772,93 @@ void HydronicS3::request_fault_codes(uint8_t status_mask) {
   ESP_LOGI(TAG, "fault code request (mask %02X): %s", status_mask, err == canbus::ERROR_OK ? "sent" : "send failed");
 }
 
+void HydronicS3::clear_dtc() {
+  if (!this->security_provider_) {
+    ESP_LOGE(TAG, "DTC clear: no security provider registered");
+    this->publish_diag_("DTC clear failed: no security provider registered");
+    return;
+  }
+  if (this->clear_step_ != CLEAR_IDLE || this->scan_active_ || !this->set_listen_only_(false)) {
+    ESP_LOGW(TAG, "DTC clear: busy, not starting");
+    return;
+  }
+  this->clear_step_ = CLEAR_WAIT_SESSION;
+  this->clear_send_({0x10, 0x61});
+}
+
+void HydronicS3::clear_send_(const std::vector<uint8_t> &payload) {
+  std::vector<uint8_t> frame(8, ISOTP_PAD);
+  frame[0] = payload.size();
+  std::copy(payload.begin(), payload.end(), frame.begin() + 1);
+  this->diag_requested_ = true;
+  this->single_until_ms_ = millis() + 3000;
+  this->clear_deadline_ms_ = millis() + CLEAR_STEP_TIMEOUT_MS;
+  if (this->canbus_->send_data(ID_DIAG_REQUEST, false, frame) != canbus::ERROR_OK)
+    this->clear_abort_("send failed");
+}
+
+void HydronicS3::clear_abort_(const char *why) {
+  ESP_LOGE(TAG, "DTC clear aborted (step %u): %s", this->clear_step_, why);
+  this->publish_diag_(std::string("DTC clear aborted: ") + why);
+  this->clear_step_ = CLEAR_IDLE;
+}
+
+// Drives the session/security/clear sequence; see the security_provider_ comment above.
+void HydronicS3::clear_step_response_(const std::vector<uint8_t> &payload) {
+  if (payload.size() >= 3 && payload[0] == 0x7F) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "NRC %02X", payload[2]);
+    this->clear_abort_(buf);
+    return;
+  }
+  switch (this->clear_step_) {
+    case CLEAR_WAIT_SESSION:
+      if (payload.size() < 2 || payload[0] != 0x50 || payload[1] != 0x61) {
+        this->clear_abort_("unexpected session response");
+        return;
+      }
+      this->clear_step_ = CLEAR_WAIT_SEED;
+      this->clear_send_({0x27, 0x65});
+      return;
+    case CLEAR_WAIT_SEED: {
+      if (payload.size() < 6 || payload[0] != 0x67 || payload[1] != 0x65) {
+        this->clear_abort_("unexpected seed response");
+        return;
+      }
+      uint8_t key[4];
+      if (!this->security_provider_(payload.data() + 2, key)) {
+        this->clear_abort_("security provider rejected the seed");
+        return;
+      }
+      this->clear_step_ = CLEAR_WAIT_KEY;
+      std::vector<uint8_t> req{0x27, 0x66};
+      req.insert(req.end(), key, key + 4);
+      this->clear_send_(req);
+      return;
+    }
+    case CLEAR_WAIT_KEY:
+      if (payload.size() < 2 || payload[0] != 0x67 || payload[1] != 0x66) {
+        this->clear_abort_("security access denied");
+        return;
+      }
+      this->clear_step_ = CLEAR_WAIT_CLEAR;
+      this->clear_send_({0x14, 0xFF, 0xFF, 0xFF});
+      return;
+    case CLEAR_WAIT_CLEAR:
+      if (payload.empty() || payload[0] != 0x54) {
+        this->clear_abort_("clear not acknowledged");
+        return;
+      }
+      this->clear_step_ = CLEAR_IDLE;
+      ESP_LOGW(TAG, "DTC error memory cleared");
+      this->publish_diag_("DTC error memory cleared");
+      this->request_fault_codes(0x08);  // refresh the fault-codes sensor
+      return;
+    default:
+      return;
+  }
+}
+
 // ISO-TP reassembly of the heater's diagnostic responses (single, first and
 // consecutive frames; flow control comes from the tester on 0x7A0).
 void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
@@ -805,6 +901,10 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
 // UDS responses of interest. 59 02 <mask> {DTC hi mid lo, status}*: ReadDTCInformation
 // by status mask, as requested by the EasyStart's error-memory readout.
 void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
+  if (this->clear_step_ != CLEAR_IDLE) {
+    this->clear_step_response_(payload);
+    return;
+  }
   if ((payload.size() >= 3 && payload[0] == 0x62) || (payload.size() >= 2 && payload[0] == 0x61)) {
     // Positive response: 62 <DID hi lo> data (22) or 61 <local id> data (21).
     const size_t data_at = payload[0] == 0x62 ? 3 : 2;

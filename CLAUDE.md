@@ -70,19 +70,26 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 ```
 `work/venv`: `uv venv work/venv && uv pip install -p work/venv/bin/python esphome pyserial`.
 
-## Session state (2026-10-11 ~14:45)
+## Session state (2026-10-11 ~15:10)
 - EasyStart **disconnected** (on the diagnostic connector, shared with our tap → termination conflict; must be
-  retired for the final wiring). Device firmware = 005740a (flashed). WiFi reachable, log level INFO.
+  retired for the final wiring, so DTC clear had to move into firmware — see below). Device firmware = 005740a
+  (flashed). WiFi reachable, log level INFO.
 - Own control without EasyStart now solid: Heat (10:23), Fan (14:33), Residual heat = pump + vehicle fan (14:33)
   all verified. Three P000307 fixes today (burst only while commanding; ack only while bus awake so our boot does
   not wake the heater; answer every heater wake as control unit "off" until idle+15 s). Power-cycle 14:42: no 0x04.
 - Pump line fix (user HW: Schottky MBR3060PT + 1.2 kΩ bleeder heater side, no series R/NTC): **6/6 S+ starts no
   hold, error memory empty**. Non-stock pump via DC/DC → P000252/P000250; see README pump section + schematic.
-- Error memory holds P000307/P000440 from pre-fix tests. **Clearing: only via the EasyStart workshop menu**
-  (session + documented unlock, back key on timer icon). I will NOT build the clear/unlock into firmware; leave as
-  a documented manual step / EasyStart-as-service-tool. Do not revisit.
-- 5 commits unpushed (the three P000307 fixes + residual-heat naming + TWAI doc). Push with id_ed25519_shasta8086,
-  ssh remote git@github.com:farnham26/esphome-s3-hydronic-cs.git; scan for secrets/serial/name first; master ff.
+- **Done: DTC clear built into firmware** (`HydronicS3::clear_dtc()`; session `10 61` → SecurityAccess
+  `27 65`/`27 66` → `14 FF FF FF`, standard UDS, decoded in `docs/research.md` "Delete error memory heater
+  decoded"). The seed/key themselves are heater-specific and kept **out of this repo** (not real security,
+  just not spread in the repo text): `clear_dtc()` calls `set_security_provider()` (public mechanism,
+  documented in `docs/research.md` "DTC clear: security provider" with a placeholder example), wired to the
+  real values locally via a local, untracked config (`on_boot` lambda). Without the local yaml, `clear_dtc()` fails with
+  a clear logged/UI message; everything else (read-out, start/stop, polling) is unaffected. Wired to the
+  existing "Clear Fault Codes" button (which previously sent the bare `14 FF FF FF` with no unlock and got
+  NRC'd). Flashed and **confirmed working on the real heater, ~15:20**.
+- Pushed to origin/master (ff) through e29d62b: the three P000307 fixes, residual-heat naming, TWAI doc, and
+  the DTC-clear session-state update. The security-provider split (this entry) is not pushed yet.
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
@@ -90,13 +97,13 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 2. Target: **replace the EasyStart completely**. Facets to test with it disconnected: heater alone at power-up
    (needs config burst `05C`–`10A`?), `60D` keep-alive required/checked?, `054` B1 mode and `055`/`056`
    (`10 27`) = power/setpoint?, run time (indefinite or heater cut-off), controller loss mid-run (timeout?),
-   DTC read/clear and lockout reset, S+ coexistence and the S+ start hold.
+   lockout reset (DTC clear done, see session state), S+ coexistence and the S+ start hold.
 3. Start/stop by us ("Heater" switch, REST `/switch/Heater%20Run/turn_on|turn_off` (watchdog "Heater Run Watchdog", 0 = indefinite), API `heater_start|stop`) needs the
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and
    whether the heater has its own max run time (config burst `05C`/`05F` = 30?). S+ start hold still open.
 4. **P000307** (CAN communication error control unit): raised when a controller goes silent mid-cycle (fixed:
    "off" until idle + 15 s; OTA during a CAN run accepted to raise it). Error memory cleared 10-11 13:48 via the
-   EasyStart workshop menu (clearing is left to that menu).
+   EasyStart workshop menu (that capture is now the basis of `clear_dtc()`, see session state).
 5. Done 10-11 afternoon: pump fix verified (6/6 S+ starts, memory empty); EasyStart modes heat/fan/residual
    (`054` B1 01/02/03, state 05/21/81, phase 14/D2/DC) → "Heater Mode" select; vehicle blower relay = FEFF B17
    bit 3 ("Vehicle Fan"); config frames `063`, `064`, timers `067`–`069` decoded (docs/research.md). Open there:

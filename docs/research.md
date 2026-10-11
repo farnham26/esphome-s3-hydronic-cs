@@ -458,11 +458,41 @@ EasyStart reconnected. EasyStart start: no hold. S+ series (EasyStart present): 
 | Menu item | On the bus |
 |---|---|
 | Read error memory heater (H1) | `19 02 01`, then `19 02 08` (multi-frame, flow control `30 08 14`) — same as ours |
-| Delete error memory heater | session change + authentication step, then `14 FF FF FF` → `54`. Left to the EasyStart menu |
+| Delete error memory heater | session change + authentication step, then `14 FF FF FF` → `54`. Decoded below, now in the component |
 | Read / delete control unit (EasyStart) | no CAN traffic: the EasyStart's own memory |
 | Read hour counter | `22 FD 17` → 1817 h on the display = FD17 dword 1 (109062 min) → **FD17 confirmed** |
 - Error memory cleared 13:48:55 → all DTC occurrence counters restart at 0 (baseline for the pump-line fix).
 - The other FD17 dwords (power bands, pause, altitude) match our sensors; FD17 counts in state 05 incl. pause.
+
+### "Delete error memory heater" decoded (2026-10-11 13:48:54.857–54.979)
+Standard UDS (ISO 14229): DiagnosticSessionControl (`10 61`), SecurityAccess requestSeed/sendKey
+(`27 65`/`27 66`), then ClearDiagnosticInformation (`14 FF FF FF`), all positive. Exposed as the
+"Clear Fault Codes" button (previously sent the bare `14 FF FF FF` with no unlock, which the
+heater refused — the NRC the 2026-10-11 ~11:15 session state saw). **Confirmed working on the
+real heater, 2026-10-11 ~15:20.**
+
+### DTC clear: security provider
+The seed and key are heater-specific; deliberately **not in this repo** (not that it's real
+cryptographic security — anyone sniffing the bus or running the EasyStart menu gets the same
+bytes — just not spread in the repo text). `HydronicS3::clear_dtc()` asks
+`HydronicS3::set_security_provider()` for the key given the seed; without one registered it
+fails with a clear logged/UI message, and nothing else in the component is affected. Wire one
+in via an `on_boot` lambda in a local, gitignored config (`work/` here), e.g.:
+```yaml
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            id(heater).set_security_provider([](const uint8_t seed[4], uint8_t key_out[4]) -> bool {
+              static const uint8_t kSeed[4] = {0xAA, 0xBB, 0xCC, 0xDD};  // placeholder
+              static const uint8_t kKey[4] = {0x00, 0x00, 0x00, 0x00};  // placeholder
+              if (memcmp(seed, kSeed, 4) != 0)
+                return false;
+              memcpy(key_out, kKey, 4);
+              return true;
+            });
+```
 
 ## Config burst decode, step 1: maintenance interval in `064` (2026-10-11 13:51–13:52)
 The EasyStart re-sends config frames **live on every settings change** (not only at power-up). Maintenance

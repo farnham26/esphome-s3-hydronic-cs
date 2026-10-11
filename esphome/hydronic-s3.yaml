@@ -608,7 +608,7 @@ button:
     web_server:
       sorting_group_id: group_control
     on_press:
-      - lambda: 'id(heater).send_uds_request("14 FF FF FF");'
+      - lambda: "id(heater).clear_dtc();"
   # Error-memory readout like the EasyStart's (mode handled by the component).
   - platform: template
     name: "Read Fault Codes"
