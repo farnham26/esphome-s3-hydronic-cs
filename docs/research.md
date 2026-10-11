@@ -506,10 +506,11 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
 | Byte | Meaning |
 |---|---|
 | B0 | `BE`: open (`80` + `3E`?) |
-| B1 | weekdays (`3E` = Mo–Fr: bit 1 Mo … bit 5 Fr; bit 0 Su? bit 6 Sa?) |
-| B2 | bits 0–4 hour (07 → `27`, 08 → `28`), bit 5 flag (open) |
+| B1 | weekdays: bit 1 Mo … bit 5 Fr, **bit 6 Sa, bit 7 Su** (`3E` = Mo–Fr, `C0` = Sa+Su), bit 0 unused |
+| B2 | bits 0–4 hour (07 → `27`, 08 → `28`, 12 → `2C`), bit 5 flag (always set so far, open) |
 | B3 | minute, binary (17 → `11`) |
-| B4 | mode (01 heat; 02 fan / 03 residual heat expected, as `054` B1) |
+| B4 | mode, as `054` B1: **01 heat, 02 fan** (confirmed), 03 residual heat (expected) |
 | B5 | bit 7 = timer active, bits 0–6 = duration in minutes (`1E` = 30) |
 | B6 | change counter |
 - `10A` changes when entering the timer menu (`10 00 01 20 10 01` → `10 4E 40 22 10 01` → `10 4F 81 …`): open.
+- Timer 3 confirmed 14:26:36: Sa+Su 12:00 fan 10 min → `069` `BE C0 2C 00 02 0A` (inactive) / `… 8A` (active).
