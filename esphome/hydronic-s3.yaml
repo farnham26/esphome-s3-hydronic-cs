@@ -411,7 +411,7 @@ interval:
           set(id(lbl_phase), phase != nullptr ? phase : v1);
           bg(id(chip_phase), c_phase,
              (phc == 0x0A || phc == 0x0C) ? 0xA08000 : phc == 0x14 ? 0xC05000 : (phc == 0x1E || phc == 0x1F) ? 0x6A3C9A
-             : phc == 0x28 ? 0x245C9A : 0x303030);
+             : phc == 0x28 ? 0x245C9A : phc == 0xC8 ? 0x9A2020 : 0x303030);
 
           const bool flame = id(b_flame).has_state() && id(b_flame).state;
           set(id(lbl_flame), flame ? "FLAME" : "no flame");

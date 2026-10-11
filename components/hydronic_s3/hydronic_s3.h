@@ -43,7 +43,7 @@ enum DidSensor : uint8_t {
   DID_GLOW_PLUG_POWER,        // FD0A 0.1 W (?)
   DID_GLOW_PLUG_RAW,          // FD0C, non-zero while glowing (start, run-down afterglow)
   DID_METERING_PUMP_RATE,     // FD0D 0.1 Hz (?)
-  DID_OPERATING_PHASE,        // FD10 B1: 00 off, 0A start (EasyStart), 0C start (S+), 14 burn, 1E run-down (off), 1F run-down (pause), 28 pause
+  DID_OPERATING_PHASE,        // FD10 B1: 00 off, 0A cold start, 0C warm start, C8 hold, 14 burn, 1E run-down (off), 1F run-down (pause), 28 pause
   DID_FUEL_CONSUMPTION,       // FD11 B1 µl/s (= 29.3 µl/stroke x FD0D; 41 at the 0.15 l/h minimum load)
   DID_HEATING_POWER,          // FD11 B1 x D6L datasheet heat flow per fuel (estimate)
   DID_FUEL_TOTAL,             // FD11 B2-5 litres + B6-9 nl (rollover at 1e9 assumed)

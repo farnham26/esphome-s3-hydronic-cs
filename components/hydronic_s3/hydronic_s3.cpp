@@ -85,8 +85,8 @@ const char *HydronicS3::phase_name(int phase) {
   switch (phase) {
     case 0x00:
       return "Off";
-    case 0x0A:  // start by the EasyStart (CAN): glow, ignition, flame stabilisation
-    case 0x0C:  // start by S+
+    case 0x0A:  // cold start (13 °C): long glow, flame after ~64 s
+    case 0x0C:  // warm start (56-70 °C): flame after ~15-60 s
       return "Start";
     case 0x14:
       return "Burn";
@@ -95,6 +95,8 @@ const char *HydronicS3::phase_name(int phase) {
       return "Run-down";
     case 0x28:
       return "Pause";
+    case 0xC8:  // start hold (2C4 B2 0x40, P000252)
+      return "Hold";
     default:
       return nullptr;
   }
