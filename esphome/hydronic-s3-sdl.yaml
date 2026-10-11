@@ -1,0 +1,46 @@
+# SDL preview of the heater UI (ui/heater-ui.yaml) on the build host, with fixed demo
+# values: for screenshots and layout work without the device.
+#   ../work/venv/bin/esphome run hydronic-s3-sdl.yaml
+esphome:
+  name: hydronic-s3-sdl
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            lv_label_set_text(id(lbl_can), "CAN 48 fps");
+            lv_obj_set_style_text_color(id(lbl_can), lv_color_hex(0x40FF40), 0);
+            lv_label_set_text(id(lbl_outlet), "68.4 °C");
+            lv_label_set_text(id(lbl_inlet), "61.2 °C");
+            lv_label_set_text(id(lbl_dt), "ΔT 7.2 K");
+            lv_bar_set_value(id(bar_power), 3450, LV_ANIM_OFF);
+            lv_label_set_text(id(lbl_power), "3450 W  ·  0.40 l/h");
+            lv_label_set_text(id(lbl_phase), "Burn");
+            lv_obj_set_style_bg_color(id(chip_phase), lv_color_hex(0xC05000), 0);
+            lv_label_set_text(id(lbl_flame), "FLAME");
+            lv_obj_set_style_bg_color(id(chip_flame), lv_color_hex(0xC02818), 0);
+            lv_obj_set_style_text_color(id(lbl_flame), lv_color_hex(0xFFFFFF), 0);
+            lv_label_set_text(id(lbl_glow), "glow off");
+            lv_obj_set_style_text_color(id(lbl_glow), lv_color_hex(0x909090), 0);
+            lv_label_set_text(id(lbl_blower), "Blower 4120 rpm");
+            lv_label_set_text(id(lbl_voltage), "26.1 V");
+            lv_label_set_text(id(lbl_heater), "active  ·  req on  ·  fault none");
+            lv_label_set_text(id(lbl_refs), "Bat 100% full   10.22.10.73");
+
+host:
+
+logger:
+
+packages:
+  ui: !include ui/heater-ui.yaml
+
+display:
+  - platform: sdl
+    id: lcd
+    dimensions:
+      width: 320
+      height: 240
+    auto_clear_enabled: false
+    update_interval: never
+
+lvgl:
+  displays: [lcd]
