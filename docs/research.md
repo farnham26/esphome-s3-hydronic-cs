@@ -525,3 +525,7 @@ Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:
 - Root cause (not the burst alone): **switching the MCP2515 to normal mode on an idle bus wakes the heater**
   (2/2 reboots without EasyStart, 14:35/14:37), which then expects a control unit → flag 0x04 / P000307 after 15 s.
   Fix: listen-only while the bus is idle; normal at the first received frame (or when we send). Reboot 14:39: no wake.
+- **The heater expects a control unit at every wake** (after it has met one): power-up / spontaneous wake with no
+  control-unit frames → flag 0x04 (P000307) after ~15 s (14:40:34). Fix: without an EasyStart, answer every wake
+  with the "off" set (`60D`, `054 00 00`, `055`–`057`, `065`) until idle + 15 s, as the EasyStart does.
+  Power cycle 14:42:46: wake, "off" presence, heater asleep ~14:43:03, **no 0x04**.

@@ -354,6 +354,13 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       ESP_LOGI(TAG, "heater connected");
       this->event_("connected", 0, 1);
       this->poll_next_ms_ = millis();  // mode: by the state change below
+      // As the EasyStart: a control unit answers every wake ("off" until idle + COMMAND_OFF_MS);
+      // a heater left without one raises P000307 after ~15 s.
+      if (!this->easystart_present_() && !this->command_on_) {
+        this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+        this->command_next_ms_ = millis();
+        this->update_mode_();
+      }
       this->schedule_burst_();
 #ifdef USE_BINARY_SENSOR
       if (this->connected_ != nullptr)
