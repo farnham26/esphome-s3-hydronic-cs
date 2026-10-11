@@ -96,6 +96,32 @@ All controls are in the web UI group **Heater Control**.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).
 
+## Non-stock water pump: start holds (P000252 / P000250)
+
+If you drive a **different coolant pump** from the heater's pump output — especially through a **DC/DC
+converter** (e.g. to protect a lower-voltage pump) — the heater may refuse starts at random:
+
+- **Symptom:** after a start request the heater stays idle; `2C4` byte 2 carries flag `0x40`, the phase reads
+  `0xC8` ("Hold" in this firmware). Switching off and on again 1–3 times usually gets it going. It happens with
+  S+, the EasyStart and CAN starts alike, warm or cold.
+- **Diagnosis:** each hold stores **P000252** ("water pump: short to +Ub or transistor error"); its occurrence
+  counter (`19 06 00 02 52 FF`) goes up by exactly one per hold. Our unit had ~110 of them.
+- **Cause (most likely):** the heater checks its pump output while it is switched off and expects the line to
+  fall. A converter's input capacitance keeps the line near the supply voltage, which the heater reads as a short
+  to +Ub. A stock (BLDC) pump does not do that.
+- **Fix that works for us:**
+  1. A **Schottky diode in series** (anode at the heater's pump output, cathode at the converter), ≥ 60 V, rated
+     well above the pump current (we use an MBR3060PT). It stops the back-feed: P000252 has not counted since.
+  2. A **bleeder resistor on the heater side** of the diode (anode → ground), ~1–1.2 kΩ, ≥ 1 W. Without it, or
+     with the resistor on the converter side, the heater sees no load when off and reports **P000250**
+     ("open circuit") instead.
+  3. Mind the **inrush** into the converter's input capacitor: a series resistor costs a lot of power with a
+     constant-power load (max. transferable power is Ub²/4R); an NTC inrush limiter is the better choice if the
+     heater reports overcurrent at switch-on. Without either we have seen no overcurrent code so far.
+- **Firmware:** `Heater Run` retries a held start up to three times (5 s off in between) and reports the hold.
+
+This is based on one installation and a limited number of starts; check your own fault memory before and after.
+
 ## How it works (short)
 
 - The heater broadcasts status (`2C4`: state, outlet temperature, fault flags; `625`, `2C5`, `2C6`).
