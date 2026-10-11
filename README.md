@@ -106,6 +106,32 @@ All controls are in the web UI group **Heater Control**.
   with `set_security_provider()` from a local config (see `docs/research.md` "DTC clear: security
   provider"). Without it, clearing fails with a message; everything else works.
 
+  Local, untracked overlay (e.g. `esphome/my-heater.yaml`, flash this instead of `hydronic-s3.yaml`):
+
+  ```yaml
+  # Pull in the public device config unchanged.
+  packages:
+    base: !include hydronic-s3.yaml
+
+  esphome:
+    on_boot:                      # appended to the base config's on_boot list
+      - priority: -100            # after the component is set up
+        then:
+          - lambda: |-
+              // Called by clear_dtc() with the heater's SecurityAccess seed (27 65 reply).
+              // Write the matching key for 27 66 and return true; false aborts the clear.
+              id(heater).set_security_provider([](const uint8_t seed[4], uint8_t key_out[4]) -> bool {
+                static const uint8_t kSeed[4] = {0xAA, 0xBB, 0xCC, 0xDD};  // placeholder: your heater's seed
+                static const uint8_t kKey[4] = {0x00, 0x00, 0x00, 0x00};   // placeholder: matching key
+                if (memcmp(seed, kSeed, 4) != 0)
+                  return false;  // unknown seed
+                memcpy(key_out, kKey, 4);
+                return true;
+              });
+  ```
+
+  Seed and key can be read off the bus while the EasyStart's workshop menu clears the error memory.
+
 ## Non-stock water pump: start holds (P000252 / P000250)
 
 If you drive a **different coolant pump** from the heater's pump output — especially through a **DC/DC
