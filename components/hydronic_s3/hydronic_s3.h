@@ -146,6 +146,8 @@ class HydronicS3 : public Component {
   void diag_response_(const std::vector<uint8_t> &data);
   void uds_(const std::vector<uint8_t> &payload);
   void decode_did_(uint16_t did, const uint8_t *d, size_t n);
+  void expire_stale_();
+  void send_failed_();
 
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
@@ -186,6 +188,10 @@ class HydronicS3 : public Component {
   uint32_t scan_rtt_max_ms_{0};
   void scan_answered_();
   int fault_code_{-1};
+  /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
+  uint32_t status_ms_{0}, controller_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
+  uint32_t did_ms_[DID_SENSOR_COUNT]{};
+  bool tx_down_{false};  // a send failed: no polling until a frame proves the bus is back
 #ifdef USE_SENSOR
   sensor::Sensor *outlet_temperature_{nullptr};
   sensor::Sensor *state_code_{nullptr};

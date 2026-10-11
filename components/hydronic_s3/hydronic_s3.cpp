@@ -45,6 +45,7 @@ static constexpr uint32_t DIAG_PENDING_TIMEOUT_MS = 2000;  // after NRC 0x78 "re
 static constexpr uint8_t NRC_RESPONSE_PENDING = 0x78;
 static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 static constexpr uint8_t STATE_FAULT = 0x0B;
+static constexpr uint32_t STALE_MS = 15000;  // no update for 3 poll sweeps: value unknown
 
 static float decode_temperature(const std::vector<uint8_t> &data, size_t offset) {
   const uint16_t raw = data[offset] | data[offset + 1] << 8;
@@ -99,6 +100,63 @@ void HydronicS3::setup() {
     this->on_frame_(can_id, ext, rtr, data);
   });
   this->set_interval("dump", DUMP_INTERVAL_MS, [this]() { this->dump_ids_(); });
+  this->set_interval("stale", 1000, [this]() { this->expire_stale_(); });
+}
+
+// Values not updated within STALE_MS (bus disconnected, heater unpowered, polling
+// stopped) become unknown: NAN / -1 internally, NAN or invalid on the entities.
+void HydronicS3::expire_stale_() {
+  const uint32_t now = millis();
+  auto stale = [now](uint32_t &ms) {
+    if (ms == 0 || now - ms < STALE_MS)
+      return false;
+    ms = 0;
+    return true;
+  };
+  if (stale(this->status_ms_)) {
+    ESP_LOGW(TAG, "no status frames for %u s", (unsigned) (STALE_MS / 1000));
+    this->outlet_temp_c_ = NAN;
+    this->state_ = -1;
+    this->fault_code_ = -1;
+#ifdef USE_SENSOR
+    if (this->outlet_temperature_ != nullptr)
+      this->outlet_temperature_->publish_state(NAN);
+    if (this->state_code_ != nullptr)
+      this->state_code_->publish_state(NAN);
+#endif
+#ifdef USE_TEXT_SENSOR
+    if (this->state_text_ != nullptr)
+      this->state_text_->publish_state("");
+    if (this->fault_text_ != nullptr)
+      this->fault_text_->publish_state("");
+#endif
+  }
+  if (stale(this->controller_ms_)) {
+    this->controller_temp_c_ = NAN;
+#ifdef USE_SENSOR
+    if (this->controller_temperature_ != nullptr)
+      this->controller_temperature_->publish_state(NAN);
+#endif
+  }
+  if (stale(this->command_ms_)) {
+    this->command_raw_ = -1;
+    this->on_request_raw_ = -1;
+#ifdef USE_BINARY_SENSOR
+    if (this->on_request_ != nullptr)
+      this->on_request_->invalidate_state();
+#endif
+  }
+  if (stale(this->heartbeat_ms_))
+    this->switch_input_raw_ = -1;
+#ifdef USE_BINARY_SENSOR
+  if (stale(this->flame_ms_) && this->flame_ != nullptr)
+    this->flame_->invalidate_state();
+#endif
+#ifdef USE_SENSOR
+  for (size_t i = 0; i < DID_SENSOR_COUNT; i++)
+    if (stale(this->did_ms_[i]) && this->did_sensors_[i] != nullptr)
+      this->did_sensors_[i]->publish_state(NAN);
+#endif
 }
 
 void HydronicS3::dump_config() { ESP_LOGCONFIG(TAG, "Hydronic S3 (listen-only discovery)"); }
@@ -108,6 +166,11 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   const uint8_t len = data.size() > 8 ? 8 : data.size();
   char buf[25];
   this->frames_++;
+  if (this->tx_down_) {
+    this->tx_down_ = false;
+    this->poll_next_ms_ = now;
+    ESP_LOGI(TAG, "bus back, polling resumed");
+  }
 
   auto [it, fresh] = this->ids_.try_emplace(can_id | (ext ? EXT_FLAG : 0));
   IdState &s = it->second;
@@ -162,6 +225,7 @@ void HydronicS3::event_(const char *what, int from, int to) {
 
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   if (can_id == ID_STATUS && data.size() >= 6) {
+    this->status_ms_ = millis();
     const float temp = decode_temperature(data, 4);
     if (!std::isnan(temp) && temp != this->outlet_temp_c_) {
       this->outlet_temp_c_ = temp;
@@ -206,6 +270,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   } else if (can_id == ID_DIAG_RESPONSE && !data.empty()) {
     this->diag_response_(data);
   } else if (can_id == ID_CONTROLLER_STATUS && data.size() >= 2) {
+    this->controller_ms_ = millis();
     const float temp = decode_temperature(data, 0);
     if (!std::isnan(temp) && temp != this->controller_temp_c_) {
       this->controller_temp_c_ = temp;
@@ -215,11 +280,15 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
 #endif
     }
   } else if (can_id == ID_HEARTBEAT && data.size() >= 2) {
+    this->heartbeat_ms_ = millis();
     if (data[1] != this->switch_input_raw_) {
       this->event_("request", this->switch_input_raw_, data[1]);
       this->switch_input_raw_ = data[1];
     }
-  } else if (can_id == ID_COMMAND && data.size() >= 2 && (data[0] << 8 | data[1]) != this->command_raw_) {
+  } else if (can_id == ID_COMMAND && data.size() >= 2) {
+    this->command_ms_ = millis();
+    if ((data[0] << 8 | data[1]) == this->command_raw_)
+      return;
     this->event_("command", this->command_raw_, data[0] << 8 | data[1]);
     this->command_raw_ = data[0] << 8 | data[1];
     this->on_request_raw_ = data[0];
@@ -296,7 +365,7 @@ void HydronicS3::stop_polling() {
 }
 
 void HydronicS3::loop() {
-  if (this->polling_ && !this->scan_active_ && static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
+  if (this->polling_ && !this->scan_active_ && !this->tx_down_ && static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
     // Start a sweep over the list (reuses the scan state machine).
     this->poll_next_ms_ = millis() + this->poll_interval_ms_;
     this->scan_service_ = 0x22;
@@ -352,7 +421,25 @@ void HydronicS3::loop() {
   this->scan_awaiting_ = true;
   this->scan_sent_ms_ = now;
   this->scan_timeout_ms_ = DIAG_TIMEOUT_MS;
-  this->canbus_->send_data(ID_DIAG_REQUEST, false, req);
+  if (this->canbus_->send_data(ID_DIAG_REQUEST, false, req) != canbus::ERROR_OK)
+    this->send_failed_();
+}
+
+// No ack on the bus keeps every TX buffer pending (disconnected bus, heater and
+// EasyStart unpowered), so each further send fails. Stop the scan or sweep; a
+// received frame proves the bus is back (on_frame_()): a pending request is acked
+// then and answered, or the heater broadcasts its status.
+void HydronicS3::send_failed_() {
+  this->scan_awaiting_ = false;
+  this->scan_active_ = false;
+  this->diag_requested_ = false;
+  if (!this->polling_) {
+    this->listen_only_hook_(true);
+    this->publish_diag_("scan aborted: send failed");
+  } else if (!this->tx_down_) {
+    ESP_LOGW(TAG, "send failed, polling paused until frames are received");
+  }
+  this->tx_down_ = true;
 }
 
 void HydronicS3::scan_answered_() {
@@ -523,6 +610,7 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
   auto u16 = [d](size_t i) { return static_cast<uint16_t>(d[i] << 8 | d[i + 1]); };
 #ifdef USE_SENSOR
   auto pub = [this](DidSensor which, float value) {
+    this->did_ms_[which] = millis();
     if (this->did_sensors_[which] != nullptr)
       this->did_sensors_[which]->publish_state(value);
   };
@@ -588,8 +676,10 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
   }
 #endif
 #ifdef USE_BINARY_SENSOR
-  if (did == 0xFD0F && n >= 1 && this->flame_ != nullptr)
+  if (did == 0xFD0F && n >= 1 && this->flame_ != nullptr) {
+    this->flame_ms_ = millis();
     this->flame_->publish_state(d[0] & 0x01);
+  }
 #endif
 }
 
