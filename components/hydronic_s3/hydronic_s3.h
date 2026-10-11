@@ -55,8 +55,11 @@ enum DidSensor : uint8_t {
   DID_HOURS_POWER_75_100,
   DID_HOURS_PAUSE,
   DID_HOURS_ALTITUDE,
-  DID_FD08_RAW,               // u16: ~23100 burn, ~24650 run-down, 20000 pause (water pump?)
-  DID_FD35_RAW,               // u16: rises while burning, falls in pause (temperature?)
+  DID_FD08_RAW,               // u16: blower command? 20000 at 0 rpm, ~20000 + 1.55 x rpm (not the water pump)
+  DID_FD35_RAW,               // u16: temperature in FD01 format, see DID_CONTROL_UNIT_TEMP
+  DID_START_STEP,             // FD10 B2: start sub-step 01..12 (B3-4 timer 10 ms): 01-05 glow, 06/08 fuel, 0B flame
+  DID_COMBUSTION_STATE,       // FD0F B1: 1 pre-glow, 2 fuel on, 3 flame
+  DID_CONTROL_UNIT_TEMP,      // FD35 v/100 - 50 °C (?): +6 K within 5 s of glow plug on, 63-67 °C at full load
   DID_SENSOR_COUNT,
 };
 

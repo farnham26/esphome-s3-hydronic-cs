@@ -415,3 +415,27 @@ state 05 (glow only, no fuel). CAN = our command (EasyStart sequence, config bur
   when the heater's PWM/output is off → "short to +Ub". Planned fix: Schottky diode in series (heater → converter),
   optional bleeder on the heater side. Firmware: automatic retry (3×, 5 s off), verified 10:34.
 - P000307/P000440 counts unchanged (1) after 6 CAN stops → continued "off" until idle + 15 s fixes P000307.
+
+## Start sequence and DID decodes (offline, 10:12 S+ and 10:23 CAN warm starts)
+- **FD10**: B0 on request, B1 phase, **B2 start sub-step**, **B3–B4 timer in 10 ms** within the sub-step
+  (step 04: 401 → 902 → 1403 per 5 s). Run-down: B5 sub-step, B6–B7 timer. Same sequence for S+ and CAN:
+
+| Step | from state 05 | What happens |
+|---|---|---|
+| 01, 03, 04 (05) | 0–43 s | glow ~94 W, blower 0, no fuel (pre-glow) |
+| 06 / 08 | +45–48 s | fuel on (0.09 → 0.25 l/h, 2.5 Hz), blower ~1450 rpm |
+| 09, 0A | +50–58 s | blower ramps |
+| 0B | +60–63 s | flame (FD0F B0 = 1, flame sensor rising) |
+| 0E, 0F, 10 | +65–80 s | blower → ~3000 rpm, glow 94 → 89 W |
+| 11, 12 | +90–97 s | glow 79 → 49 W |
+| phase 14 | +100 s | burn, glow off, regulation |
+
+- **FD0F B1**: combustion state 01 pre-glow, 02 fuel on, 03 flame. B2–B5: two u16 around 30000 (±50), change at
+  fuel-on and flame, meaning open.
+- **FD08 ≈ 20000 + 1.55 × blower rpm** (20000 during pre-glow while the water pump runs; 29950 at 6154 rpm):
+  blower command/PWM, **not** the water pump. Water pump power still not found.
+- **FD35 = control unit temperature (?)**, FD01 format v/100 − 50: 40 °C idle, +6 K within 5 s of glow plug on
+  (driver losses), 47 °C at minimum burn, 63–67 °C at full load (10-10).
+- Regulation: EasyStart run 09:3x (cold water): 0.644 l/h up to 69 °C, 72.5 °C → 0.443, 74.5 → 0.230, ≥ 75 °C
+  minimum 0.148, no pause even at 76.9 °C → dynamic (lag/trend), not the static FD33 curve. CAN start at 70.6 °C
+  rising → minimum: consistent, no sign of a CAN power cap (`055`/`056` `10 27` identical with the EasyStart).

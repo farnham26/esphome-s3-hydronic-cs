@@ -933,8 +933,10 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         pub(DID_FD08_RAW, u16(0));
       break;
     case 0xFD35:
-      if (n >= 2)
+      if (n >= 2) {
         pub(DID_FD35_RAW, u16(0));
+        pub(DID_CONTROL_UNIT_TEMP, u16(0) / 100.0f - 50.0f);
+      }
       break;
     case 0xFD09:
       if (n >= 2)
@@ -955,6 +957,12 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
     case 0xFD10:
       if (n >= 2)
         pub(DID_OPERATING_PHASE, d[1]);
+      if (n >= 3)
+        pub(DID_START_STEP, d[2]);
+      break;
+    case 0xFD0F:
+      if (n >= 2)
+        pub(DID_COMBUSTION_STATE, d[1]);
       break;
     case 0xFD11:
       if (n >= 2) {

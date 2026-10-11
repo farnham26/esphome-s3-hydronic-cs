@@ -437,6 +437,20 @@ sensor:
       name: "FD35 Raw"
       web_server:
         sorting_group_id: group_debug
+    start_step:
+      name: "Start Step"
+      icon: mdi:stairs-up
+      web_server:
+        sorting_group_id: group_components
+    combustion_state:
+      name: "Combustion State"
+      icon: mdi:fire-circle
+      web_server:
+        sorting_group_id: group_components
+    control_unit_temperature:
+      name: "Control Unit Temperature"
+      web_server:
+        sorting_group_id: group_components
   - platform: template
     name: "CAN Frame Rate"
     unit_of_measurement: "fps"

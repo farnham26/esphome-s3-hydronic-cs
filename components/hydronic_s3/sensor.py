@@ -117,6 +117,9 @@ DID_SENSORS = {
     "hours_pause": ("DID_HOURS_PAUSE", _HOURS),
     "hours_altitude": ("DID_HOURS_ALTITUDE", _HOURS),
     "fd08_raw": ("DID_FD08_RAW", dict(accuracy_decimals=0, entity_category=ENTITY_CATEGORY_DIAGNOSTIC)),
+    "start_step": ("DID_START_STEP", dict(accuracy_decimals=0)),
+    "combustion_state": ("DID_COMBUSTION_STATE", dict(accuracy_decimals=0)),
+    "control_unit_temperature": ("DID_CONTROL_UNIT_TEMP", _TEMP),
     "fd35_raw": ("DID_FD35_RAW", dict(accuracy_decimals=0, entity_category=ENTITY_CATEGORY_DIAGNOSTIC)),
 }
 
