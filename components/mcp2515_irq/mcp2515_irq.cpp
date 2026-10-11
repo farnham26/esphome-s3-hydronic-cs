@@ -189,7 +189,7 @@ bool MCP2515::set_listen_only(bool listen_only) {
     this->mcp_mode_ = mode;  // applied by start_()
   if (this->spi_mutex_ != nullptr)
     xSemaphoreGive(this->spi_mutex_);
-  ESP_LOGI(TAG, "%s mode%s", listen_only ? "listen-only" : "normal", ok ? "" : " FAILED");
+  ESP_LOGD(TAG, "%s mode%s", listen_only ? "listen-only" : "normal", ok ? "" : " FAILED");
   return ok;
 }
 
@@ -568,7 +568,7 @@ canbus::Error MCP2515::send_message(struct canbus::CanFrame *frame) {
     for (auto &tx_buffer : tx_buffers)
       if (failed & (1 << tx_buffer))
         modify_register_(TXB[tx_buffer].CTRL, TXB_TXREQ, 0);
-    ESP_LOGW(TAG, "TX aborted (no ack), buffers %02X", failed);
+    ESP_LOGI(TAG, "TX aborted (no ack), buffers %02X", failed);
   }
 
   if (this->spi_mutex_ != nullptr)

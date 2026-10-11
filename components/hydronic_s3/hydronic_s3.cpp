@@ -126,7 +126,7 @@ void HydronicS3::expire_stale_() {
     return true;
   };
   if (stale(this->status_ms_)) {
-    ESP_LOGW(TAG, "heater disconnected: no status frames for %u s", (unsigned) (STALE_MS / 1000));
+    ESP_LOGI(TAG, "heater disconnected: no status frames for %u s", (unsigned) (STALE_MS / 1000));
     this->event_("connected", 1, 0);
     // Re-read the identification on reconnect: it may be another heater.
     this->ident_dids_ = {0xF193, 0xF195, 0xF1F0, 0xF1F5};
@@ -209,7 +209,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   if (this->wake_trace_ != 0) {
     this->wake_trace_--;
     hex(buf, data.data(), len);
-    ESP_LOGI(TAG, "wake +%5" PRIu32 "ms %0*" PRIX32 " [%u] %s", now - this->wake_ms_, ext ? 8 : 3, can_id, len,
+    ESP_LOGD(TAG, "wake +%5" PRIu32 "ms %0*" PRIX32 " [%u] %s", now - this->wake_ms_, ext ? 8 : 3, can_id, len,
              rtr ? "RTR" : buf);
   }
   if (this->tx_down_) {
@@ -226,11 +226,11 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
       // J1939: prio(3) EDP/DP(2) PF(8) PS(8) SA(8). PS is a destination for PF < 240 (PDU1).
       const uint8_t pf = can_id >> 16, ps = can_id >> 8, sa = can_id;
       const uint32_t pgn = (can_id >> 8) & (pf >= 240 ? 0x3FFFF : 0x3FF00);
-      ESP_LOGI(TAG, "new ext %08" PRIX32 " [%u] %s  J1939 prio %u PGN %" PRIu32 " (0x%05" PRIX32 ") SA %u%s%s",
+      ESP_LOGD(TAG, "new ext %08" PRIX32 " [%u] %s  J1939 prio %u PGN %" PRIu32 " (0x%05" PRIX32 ") SA %u%s%s",
                can_id, len, rtr ? "RTR" : buf, (unsigned) (can_id >> 26) & 7, pgn, pgn, sa,
                pf < 240 ? " DA " : "", pf < 240 ? to_string(ps).c_str() : "");
     } else {
-      ESP_LOGI(TAG, "new std %03" PRIX32 " [%u] %s", can_id, len, rtr ? "RTR" : buf);
+      ESP_LOGD(TAG, "new std %03" PRIX32 " [%u] %s", can_id, len, rtr ? "RTR" : buf);
     }
   } else {
     const float dt = now - s.last_ms;
@@ -308,7 +308,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       this->idle_sweeps_ = IDLE_SWEEPS;
       this->update_mode_();
       const char *name = state_name(this->state_);
-      ESP_LOGI(TAG, "state 0x%02X (%s)", this->state_, name != nullptr ? name : "unknown");
+      ESP_LOGD(TAG, "state 0x%02X (%s)", this->state_, name != nullptr ? name : "unknown");
 #ifdef USE_SENSOR
       if (this->state_code_ != nullptr)
         this->state_code_->publish_state(this->state_);
@@ -416,7 +416,10 @@ void HydronicS3::send_uds_request(const std::string &hex) {
   this->diag_requested_ = true;
   this->single_until_ms_ = millis() + 3000;
   const bool sent = this->canbus_->send_data(ID_DIAG_REQUEST, false, frame) == canbus::ERROR_OK;
-  ESP_LOGI(TAG, "UDS request %s %s", hex.c_str(), sent ? "sent" : "send failed");
+  if (sent)
+    ESP_LOGI(TAG, "UDS request %s sent", hex.c_str());
+  else
+    ESP_LOGW(TAG, "UDS request %s send failed", hex.c_str());
 }
 
 void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
@@ -460,7 +463,7 @@ void HydronicS3::update_mode_() {
 void HydronicS3::set_command(bool on) {
   if (!this->listen_only_hook_)
     return;
-  ESP_LOGW(TAG, "command %s (research)", on ? "ON" : "OFF");
+  ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on);
   this->command_on_ = on;
   this->command_until_ms_ = on ? 0 : millis() + COMMAND_OFF_MS;
@@ -587,7 +590,7 @@ void HydronicS3::scan_answered_() {
 }
 
 void HydronicS3::publish_diag_(const std::string &text) {
-  ESP_LOGI(TAG, "diag %s", text.c_str());
+  ESP_LOGD(TAG, "diag %s", text.c_str());
 #ifdef USE_TEXT_SENSOR
   if (this->diag_response_text_ != nullptr)
     this->diag_response_text_->publish_state(text);
@@ -823,18 +826,18 @@ void HydronicS3::dump_ids_() {
     return;
   this->dumped_frames_ = this->frames_;
   if (this->ids_.empty()) {
-    ESP_LOGW(TAG, "no frames received");
+    ESP_LOGI(TAG, "no frames received");
     return;
   }
   const uint32_t now = millis();
   char buf[25], mask[9];
-  ESP_LOGI(TAG, "%u IDs, %" PRIu32 " frames", (unsigned) this->ids_.size(), this->frames_);
+  ESP_LOGD(TAG, "%u IDs, %" PRIu32 " frames", (unsigned) this->ids_.size(), this->frames_);
   for (auto &[key, s] : this->ids_) {
     hex(buf, s.data, s.len);
     for (uint8_t b = 0; b < 8; b++)
       mask[b] = b >= s.len ? ' ' : (s.changed >> b & 1) ? '^' : '.';
     mask[8] = 0;
-    ESP_LOGI(TAG, "  %0*" PRIX32 " n=%-6" PRIu32 " T~%6.0fms age=%5" PRIu32 "ms  %-24s %s", s.ext ? 8 : 3,
+    ESP_LOGD(TAG, "  %0*" PRIX32 " n=%-6" PRIu32 " T~%6.0fms age=%5" PRIu32 "ms  %-24s %s", s.ext ? 8 : 3,
              key & ~EXT_FLAG, s.count, s.period_ms, now - s.last_ms, buf, mask);
     s.changed = 0;
   }
