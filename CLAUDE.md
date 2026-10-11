@@ -92,14 +92,17 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    that commanded the heater goes silent mid-cycle (our 5 s off tail during run-down, fixed). An OTA/reboot while
    commanding is accepted to raise it (expected "CAN miss"). Delete: our `14 FF FF FF` is refused (NRC 7F, also in session 03) →
    sniff the EasyStart's "delete error memory" (7A0/73C) and replicate it. Same for P000440.
-5. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
-6. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
+5. Vehicle blower relay: on a cold start the heater switches the fan relay ~1 min later (loop warm). Not in the
+   12 polled DIDs nor 2C4/2C5/2C6/625 (12:16 run checked). Next cold start: "Poll All DIDs" on, user notes the click
+   time → find the bit. Fallback: GPIO on the relay line.
+6. Open DIDs: water pump power (FD08?), FD35, FD0F w2–5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
+7. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
    real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
-7. Published: `origin` = github.com/farnham26/esphome-s3-hydronic-cs (GPLv3, SSH key `id_ed25519_shasta8086`,
+8. Published: `origin` = github.com/farnham26/esphome-s3-hydronic-cs (GPLv3, SSH key `id_ed25519_shasta8086`,
    author `farnham26`). History scrubbed of dealer-tool material, heater serial, internal URLs — keep it that way.
    Web screenshots: redact the "Heater Serial Number" row before committing.
-8. Clean-up done 10-11: listen-only hook optional, `research:` switch, research package + `hydronic_s3_research.cpp`,
+9. Clean-up done 10-11: listen-only hook optional, `research:` switch, research package + `hydronic_s3_research.cpp`,
    TWAI example compiles. tempcontrol will include the component on TWAI (S+/running lines become CAN). Open:
    zero-loss MCP2515 read in an IRAM ISR (Fire only).
 
