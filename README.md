@@ -19,8 +19,8 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
   polled only while the heater is active, so the bus and the heater can go to sleep:
   - outlet / inlet temperature, ΔT, flame sensor temperature
   - heating power (estimated from fuel × datasheet heat output), fuel consumption, total fuel burnt
-  - coolant flow (estimated from power and ΔT while burning; coolant heat capacity set for a ~40 % glycol
-    premix, `COOLANT_J_PER_L_K`)
+  - coolant flow (estimated from power and ΔT while burning; coolant heat capacity set for a ~50 % glycol
+    premix such as Alde Premixed G13, `COOLANT_J_PER_L_K`)
   - operating phase (check, cold/warm start, heating, control pause, run-down, shutdown, blocked), start progress,
     combustion state (pre-glow / fuel / flame), flame, glow plug power
   - blower speed, metering pump rate, supply voltage, control unit temperature

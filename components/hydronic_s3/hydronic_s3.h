@@ -75,9 +75,9 @@ enum IdentText : uint8_t {
 
 /// D6L datasheet: 5600 W at 0.65 l/h, 1300 W at 0.15 l/h (linear within 1 %).
 static constexpr float HEAT_FLOW_W_PER_L_H = 5600.0f / 0.65f;
-/// Coolant Alde Premixed G13 (~40 % glycol, ready mixed): volumetric heat capacity at 60-70 °C,
-/// J/(l K), approx. (±5 %).
-static constexpr float COOLANT_J_PER_L_K = 3800.0f;
+/// Coolant Alde Premixed G13: ready mixed ~50 % glycol (ethylene glycol, 20 % of it replaced by glycerin),
+/// frost -37 °C. No published cp; 50 % EG tables at 60-70 °C: 3.47 kJ/(kg K) x 1.05 kg/l. J/(l K), ±5 %.
+static constexpr float COOLANT_J_PER_L_K = 3650.0f;
 /// Water flow is estimated only above this outlet - inlet difference (K).
 static constexpr float FLOW_MIN_DT_K = 3.0f;
 
