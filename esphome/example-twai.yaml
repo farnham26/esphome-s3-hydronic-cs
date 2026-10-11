@@ -8,6 +8,10 @@ esp32:
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
+    sdkconfig_options:
+      # TWAI ISR in IRAM, runs while the flash cache is off (OTA, NVS writes): no RX loss there.
+      CONFIG_TWAI_ISR_IN_IRAM: y
+      CONFIG_TWAI_ISR_CACHE_SAFE: y
 
 external_components:
   - source:
