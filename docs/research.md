@@ -453,3 +453,13 @@ EasyStart reconnected. EasyStart start: no hold. S+ series (EasyStart present): 
 - DTC memory after: P000252 still 115, P000250 still 2 (status 68, not active), **no overcurrent / 25x codes**.
 - Too few starts for a rate yet; next: S+ trials (≤ 5 aborts, then a warm-up run) and a CAN series without the
   EasyStart.
+
+## EasyStart workshop menu, sniffed (2026-10-11 ~13:48–13:51, Fire listen-only, our polling off)
+| Menu item | On the bus |
+|---|---|
+| Read error memory heater (H1) | `19 02 01`, then `19 02 08` (multi-frame, flow control `30 08 14`) — same as ours |
+| Delete error memory heater | session change + authentication step, then `14 FF FF FF` → `54`. Left to the EasyStart menu |
+| Read / delete control unit (EasyStart) | no CAN traffic: the EasyStart's own memory |
+| Read hour counter | `22 FD 17` → 1817 h on the display = FD17 dword 1 (109062 min) → **FD17 confirmed** |
+- Error memory cleared 13:48:55 → all DTC occurrence counters restart at 0 (baseline for the pump-line fix).
+- The other FD17 dwords (power bands, pause, altitude) match our sensors; FD17 counts in state 05 incl. pause.

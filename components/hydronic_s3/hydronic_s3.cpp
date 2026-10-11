@@ -274,6 +274,11 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
 
   if (this->research_)
     this->track_id_(can_id, ext, rtr, data, now);
+  // Research: every diagnostic frame, also another tester's (EasyStart menu functions).
+  if (this->research_ && !ext && (can_id == ID_DIAG_REQUEST || can_id == ID_DIAG_RESPONSE)) {
+    hex(buf, data.data(), len);
+    ESP_LOGD(TAG, "uds %s %s", can_id == ID_DIAG_REQUEST ? "req" : "rsp", buf);
+  }
   // EasyStart frames (the controller never receives its own): copy its keep-alive,
   // and stop commanding at once when it is on the bus.
   const bool easystart = !ext && ((can_id >= ID_COMMAND && can_id <= 0x057) || can_id == ID_CONTROLLER_STATUS ||
