@@ -217,6 +217,8 @@ class HydronicS3 : public Component {
   uint32_t command_next_ms_{0};
   uint32_t command_lease_ms_{30 * 60 * 1000};
   uint32_t command_deadline_ms_{0};
+  uint8_t start_retries_{0};      // start holds retried for the current "on"
+  uint32_t retry_until_ms_{0};    // "off" until then (start hold retry); 0: none
   uint32_t keepalive_next_ms_{0};
   uint8_t keepalive_data_[8]{0x0D, 0x10, 0x75, 0x7A, 0x02, 0x20, 0x70, 0x00};  // last 60D seen
   uint8_t controller_data_[8]{0x6C, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};  // last 065 seen

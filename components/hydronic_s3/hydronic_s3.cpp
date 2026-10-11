@@ -40,7 +40,12 @@ static constexpr uint32_t ID_KEEPALIVE = 0x60D;  // EasyStart, 100 ms; its retri
 static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
 static constexpr uint32_t COMMAND_OFF_MS = 5000;
-static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;  // 065, as the EasyStart after a wake
+static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;
+// Start hold (2C4 B2 0x40, P000252 with the pump's DC/DC converter): "off" for a
+// while, then "on" again, as the S+ users did by hand.
+static constexpr uint8_t START_HOLD = 0x40;
+static constexpr uint8_t START_RETRIES = 3;
+static constexpr uint32_t RETRY_OFF_MS = 5000;  // 065, as the EasyStart after a wake
 static constexpr uint8_t IDLE_SWEEPS = 2;
 static constexpr uint32_t EASYSTART_GONE_MS = 60000;  // after a state change into idle: values, identification
 // Diagnostics: UDS over ISO-TP, tester 0x7A0 -> heater 0x73C.
@@ -345,6 +350,19 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       this->idle_sweeps_ = IDLE_SWEEPS;
       this->update_mode_();
     }
+    if ((data[2] & START_HOLD) && !(this->fault_code_ >= 0 && (this->fault_code_ & START_HOLD)) &&
+        this->command_on_ && this->retry_until_ms_ == 0) {
+      if (this->start_retries_ < START_RETRIES) {
+        this->start_retries_++;
+        this->retry_until_ms_ = millis() + RETRY_OFF_MS;
+        ESP_LOGW(TAG, "start hold: retry %u of %u", this->start_retries_, START_RETRIES);
+        this->event_("start retry", this->start_retries_ - 1, this->start_retries_);
+      } else {
+        ESP_LOGW(TAG, "start hold after %u retries: command off", START_RETRIES);
+        this->event_("start failed", START_RETRIES, 0);
+        this->set_command(false);
+      }
+    }
     if (data[2] != this->fault_code_) {
       this->event_("flags", this->fault_code_, data[2]);
       this->fault_code_ = data[2];
@@ -491,6 +509,8 @@ void HydronicS3::set_command(bool on) {
     ESP_LOGD(TAG, "command lease renewed");
     return;
   }
+  this->start_retries_ = 0;
+  this->retry_until_ms_ = 0;
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on);
   this->command_on_ = on;
@@ -535,7 +555,11 @@ void HydronicS3::command_loop_() {
   // As the EasyStart: "off" while the heater boots (state 00 or not yet seen), "on"
   // once it reports ready (03); an "on" during its boot is followed by a start hold.
   const bool ready = this->state_ > 0x00;
-  const uint8_t on = this->command_on_ && ready ? 0x01 : 0x00;
+  if (this->retry_until_ms_ != 0 && static_cast<int32_t>(now - this->retry_until_ms_) >= 0) {
+    this->retry_until_ms_ = 0;
+    ESP_LOGI(TAG, "start retry %u: on", this->start_retries_);
+  }
+  const uint8_t on = this->command_on_ && ready && this->retry_until_ms_ == 0 ? 0x01 : 0x00;
   this->canbus_->send_data(ID_COMMAND, false, {on, on, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00});
   this->canbus_->send_data(0x055, false, {0x10, 0x27, 0, 0, 0, 0, 0, 0});
   this->canbus_->send_data(0x056, false, {0x10, 0x27, 0, 0, 0, 0, 0, 0});
