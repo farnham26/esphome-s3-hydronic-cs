@@ -64,6 +64,8 @@ enum DidSensor : uint8_t {
   DID_COMBUSTION_STATE,       // FD0F B1: 1 pre-glow, 2 fuel on, 3 flame
   DID_CONTROL_UNIT_TEMP,      // FD35 v/100 - 50 °C (?): +6 K within 5 s of glow plug on, 63-67 °C at full load
   DID_WATER_FLOW,             // estimate: heating power / (coolant heat capacity x (outlet - inlet)), burning only
+  DID_WATER_PUMP_CURRENT,     // FEFF B21 x 10 mA (unit likely: 0.78 A vs 0.70 +- 0.1 A measured, 10-11)
+  DID_FUEL_PUMP_CURRENT,      // FEFF B19 x 10 mA (as B21; ~0.36 A while the metering pump runs)
   DID_SENSOR_COUNT,
 };
 

@@ -611,3 +611,24 @@ Steps: 10:00 → Thu → 17:54 → Sun: `10 02 40 2A` → `13 03 9A 2A` → `13 
   cut-short burn.
 - S+ held on at power-up = misuse (not pursued); the 17:02–17:24 `C8` was that (request pending, no `0x40`), and
   the 17:00:34 shutdown was the EasyStart unplug (controller loss) with the S+ request still `01`.
+
+## Output currents in FEFF, residual threshold (2026-10-11 18:42–19:37, external battery current meter)
+Fan ↔ residual heat switches (only the water pump differs), battery power from an external meter (0.1 A
+resolution), a variable-speed fridge as a constant offset in the window:
+| Phase | Battery meter | FEFF B21 |
+|---|---|---|
+| Fan | −62.8 W / 2.40 A | 0 |
+| Residual (coolant 75 °C) | −81.1 W / 3.10 A | 78.1 (75–80) |
+| Δ = water pump | **18.3 W / 0.70 A (±0.1 A)** | |
+- **FEFF B21 = water pump current, 10 mA** (0.78 A; within the meter's ±0.1 A); 0 when off, ~36 at switch-on (`0F`),
+  ~73–82 in heat, pause, run-down and residual alike (pump runs through the control pause).
+- **FEFF B19 = metering (fuel) pump current, 10 mA** (as B21): 0 off, 33–44 while it runs, independent of the rate.
+- FEFF B24/B25 track the glow plug power (r 0.99, duplicate of FD0A). No blower current found (BLDC: command FD08,
+  rpm FD09 only); B29 falls with rpm at high speed but is noisy; B9 random; B32 a slow temperature.
+- Fan mode adds 5.2 W (heater awake + vehicle fan output) over idle (−13.1 W base load).
+- **Residual heat needs warm coolant**: 74 °C and 65 °C accepted (state `81`, phase `DC`); **47 °C refused**: state `41`
+  phase `DD` (~6 s, pump on briefly), then state `C1` phase `DE`, pump off, until the mode changes. So `41`/`C1` are not
+  "Stopping" but residual refused/ended. Threshold between 47 and 65 °C.
+- Clock: our `10A` logged as sent (`16 AB 72 32 10 01` = Sun 18:42:50, counter 1; sync resend counter 2) — matches the
+  EasyStart's encoding. No DID tracks the time (FD17 B3 is the operating-minute counter), so whether the heater uses
+  it is not observable.

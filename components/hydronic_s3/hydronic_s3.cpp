@@ -116,7 +116,7 @@ const char *HydronicS3::state_name(int state) {
       return "Running";  // request active: start, heating, control pause
     case 0x41:
     case 0xC1:
-      return "Stopping";  // briefly at the end of a run (10-10), then 03
+      return "Residual off";  // residual heat refused/ended (coolant 47 °C, 10-11; also once at a run end, 10-10)
     case 0x21:
       return "Fan";  // 054 B1 02: vehicle fan only (10-11)
     case 0x81:
@@ -157,6 +157,8 @@ static const PhaseName PHASES[] = {
     {0x1E, "Shutdown", "Run-down (switched off)"},
     {0xC8, "Blocked", "Blocked (see fault codes)"},  // start hold (P000252/P000250), also after P000307
     {0xDC, "Residual", "Residual heat (pump + fan)"},  // 054 B1 03, FD10 B0 04, 2C4 state 81
+    {0xDD, "Residual check", "Residual heat: checking coolant"},  // state 41, ~6 s, then DC or DE
+    {0xDE, "Residual off", "Residual heat refused (coolant too cold)"},  // state C1, pump off; 47 °C refused, 65 °C ok
     {0xD2, "Fan", "Fan (vehicle fan only)"},  // 054 B1 02, FD10 B0 03, 2C4 state 21
 };
 
@@ -767,6 +769,8 @@ bool HydronicS3::clock_frame_(uint8_t out[6]) {
   out[3] = 0x20 | t.hour;
   out[4] = 0x10;
   out[5] = 0x01;
+  ESP_LOGD(TAG, "clock 10A %02X %02X %02X %02X %02X %02X (weekday %u, %02u:%02u:%02u)", out[0], out[1], out[2], out[3],
+           out[4], out[5], out[0] & 0x07, out[3] & 0x1F, out[1] >> 2, out[2] & 0x3F);
   return true;
 #else
   return false;
@@ -1226,6 +1230,13 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         const uint32_t litres = static_cast<uint32_t>(u16(2)) << 16 | u16(4);
         const uint32_t nl = static_cast<uint32_t>(u16(6)) << 16 | u16(8);
         pub(DID_FUEL_TOTAL, litres + nl / 1e9f);
+      }
+      break;
+    case 0xFEFF:
+      // The heater's own output current measurements (diagnostics: open circuit / short).
+      if (n >= 22) {
+        pub(DID_FUEL_PUMP_CURRENT, d[19] / 100.0f);
+        pub(DID_WATER_PUMP_CURRENT, d[21] / 100.0f);
       }
       break;
     case 0xFD17:

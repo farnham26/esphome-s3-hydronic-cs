@@ -158,6 +158,12 @@ time:
 # overflow every poll, measured).
 
 binary_sensor:
+  - platform: template
+    name: "Water Pump"
+    icon: mdi:pump
+    lambda: "return id(s_water_pump_current).state > 0.2f;"  # NAN (unknown) reads as off
+    web_server:
+      sorting_group_id: group_components
   - platform: hydronic_s3
     on_request:
       name: "Heater On Request"
@@ -416,6 +422,17 @@ sensor:
       id: s_glow
       name: "Glow Plug Power"
       icon: mdi:lightning-bolt
+      web_server:
+        sorting_group_id: group_components
+    water_pump_current:
+      id: s_water_pump_current
+      name: "Water Pump Current"
+      icon: mdi:pump
+      web_server:
+        sorting_group_id: group_components
+    fuel_pump_current:
+      name: "Fuel Pump Current"
+      icon: mdi:current-dc
       web_server:
         sorting_group_id: group_components
     metering_pump_rate:

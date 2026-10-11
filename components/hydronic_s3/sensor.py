@@ -2,6 +2,7 @@ import esphome.codegen as cg
 from esphome.components import sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_DURATION,
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
@@ -11,6 +12,7 @@ from esphome.const import (
     ENTITY_CATEGORY_DIAGNOSTIC,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
+    UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_HERTZ,
     UNIT_HOUR,
@@ -72,6 +74,21 @@ DID_SENSORS = {
         ),
     ),
     "glow_plug_raw": ("DID_GLOW_PLUG_RAW", dict(accuracy_decimals=0)),
+    **{
+        key: (
+            did,
+            dict(
+                unit_of_measurement=UNIT_AMPERE,
+                accuracy_decimals=2,
+                device_class=DEVICE_CLASS_CURRENT,
+                state_class=STATE_CLASS_MEASUREMENT,
+            ),
+        )
+        for key, did in (
+            ("water_pump_current", "DID_WATER_PUMP_CURRENT"),
+            ("fuel_pump_current", "DID_FUEL_PUMP_CURRENT"),
+        )
+    },
     "metering_pump_rate": (
         "DID_METERING_PUMP_RATE",
         dict(
