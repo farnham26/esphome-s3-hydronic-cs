@@ -94,9 +94,12 @@ class HydronicS3 : public Component {
 #ifdef USE_BINARY_SENSOR
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
   void set_flame_binary_sensor(binary_sensor::BinarySensor *s) { this->flame_ = s; }
+  void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { this->connected_ = s; }
 #endif
 
-  /// Last decoded values; NAN / -1 until received.
+  /// Heater status frames received within the stale timeout.
+  bool connected() const { return this->status_ms_ != 0; }
+  /// Last decoded values; NAN / -1 until received and after the stale timeout.
   float outlet_temperature() const { return this->outlet_temp_c_; }
   int state() const { return this->state_; }
   int on_request() const { return this->on_request_raw_; }
@@ -152,6 +155,7 @@ class HydronicS3 : public Component {
   canbus::Canbus *canbus_{nullptr};
   std::map<uint32_t, IdState> ids_;
   uint32_t frames_{0};
+  uint32_t dumped_frames_{UINT32_MAX};  // frames_ at the last ID dump
 
   float outlet_temp_c_{NAN};
   int state_{-1};
@@ -209,6 +213,7 @@ class HydronicS3 : public Component {
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *on_request_{nullptr};
   binary_sensor::BinarySensor *flame_{nullptr};
+  binary_sensor::BinarySensor *connected_{nullptr};
 #endif
 };
 

@@ -130,6 +130,10 @@ binary_sensor:
       name: "Flame"
       web_server:
         sorting_group_id: group_heater
+    connected:
+      name: "Heater Connected"
+      web_server:
+        sorting_group_id: group_heater
   - id: !extend button_a
     on_press:
       - lvgl.page.previous:
@@ -346,7 +350,7 @@ interval:
           const int st = id(heater).state(), rq = id(heater).on_request();
           const char *name = hydronic_s3::HydronicS3::state_name(st);
           char code[8];
-          snprintf(code, sizeof(code), st < 0 ? "--" : "0x%02X", st);
+          snprintf(code, sizeof(code), !id(heater).connected() ? "offline" : st < 0 ? "--" : "0x%02X", st);
           const int fc = id(heater).fault_code();
           // DID values: NAN until the first poll answer.
           auto num = [](char *out, size_t len, float v, const char *fmt) {

@@ -101,6 +101,10 @@ void HydronicS3::setup() {
   });
   this->set_interval("dump", DUMP_INTERVAL_MS, [this]() { this->dump_ids_(); });
   this->set_interval("stale", 1000, [this]() { this->expire_stale_(); });
+#ifdef USE_BINARY_SENSOR
+  if (this->connected_ != nullptr)
+    this->connected_->publish_state(false);
+#endif
 }
 
 // Values not updated within STALE_MS (bus disconnected, heater unpowered, polling
@@ -114,7 +118,11 @@ void HydronicS3::expire_stale_() {
     return true;
   };
   if (stale(this->status_ms_)) {
-    ESP_LOGW(TAG, "no status frames for %u s", (unsigned) (STALE_MS / 1000));
+    ESP_LOGW(TAG, "heater disconnected: no status frames for %u s", (unsigned) (STALE_MS / 1000));
+    this->event_("connected", 1, 0);
+    // Re-read the identification on reconnect: it may be another heater.
+    this->ident_dids_ = {0xF193, 0xF195, 0xF1F0, 0xF1F5};
+    this->isotp_len_ = 0;
     this->outlet_temp_c_ = NAN;
     this->state_ = -1;
     this->fault_code_ = -1;
@@ -123,6 +131,10 @@ void HydronicS3::expire_stale_() {
       this->outlet_temperature_->publish_state(NAN);
     if (this->state_code_ != nullptr)
       this->state_code_->publish_state(NAN);
+#endif
+#ifdef USE_BINARY_SENSOR
+    if (this->connected_ != nullptr)
+      this->connected_->publish_state(false);
 #endif
 #ifdef USE_TEXT_SENSOR
     if (this->state_text_ != nullptr)
@@ -225,6 +237,14 @@ void HydronicS3::event_(const char *what, int from, int to) {
 
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   if (can_id == ID_STATUS && data.size() >= 6) {
+    if (this->status_ms_ == 0) {
+      ESP_LOGI(TAG, "heater connected");
+      this->event_("connected", 0, 1);
+#ifdef USE_BINARY_SENSOR
+      if (this->connected_ != nullptr)
+        this->connected_->publish_state(true);
+#endif
+    }
     this->status_ms_ = millis();
     const float temp = decode_temperature(data, 4);
     if (!std::isnan(temp) && temp != this->outlet_temp_c_) {
@@ -339,8 +359,8 @@ void HydronicS3::send_uds_request(const std::string &hex) {
   std::copy(payload.begin(), payload.end(), frame.begin() + 1);
   this->diag_requested_ = true;
   this->single_until_ms_ = millis() + 3000;
-  this->canbus_->send_data(ID_DIAG_REQUEST, false, frame);
-  ESP_LOGI(TAG, "UDS request %s sent", hex.c_str());
+  const bool sent = this->canbus_->send_data(ID_DIAG_REQUEST, false, frame) == canbus::ERROR_OK;
+  ESP_LOGI(TAG, "UDS request %s %s", hex.c_str(), sent ? "sent" : "send failed");
 }
 
 void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
@@ -433,6 +453,7 @@ void HydronicS3::send_failed_() {
   this->scan_awaiting_ = false;
   this->scan_active_ = false;
   this->diag_requested_ = false;
+  this->isotp_len_ = 0;
   if (!this->polling_) {
     this->listen_only_hook_(true);
     this->publish_diag_("scan aborted: send failed");
@@ -684,6 +705,10 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
 }
 
 void HydronicS3::dump_ids_() {
+  // Nothing new (bus idle or disconnected): one line, not the full table every time.
+  if (this->frames_ == this->dumped_frames_)
+    return;
+  this->dumped_frames_ = this->frames_;
   if (this->ids_.empty()) {
     ESP_LOGW(TAG, "no frames received");
     return;
