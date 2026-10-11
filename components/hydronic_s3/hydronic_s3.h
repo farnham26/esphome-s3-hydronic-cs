@@ -109,6 +109,7 @@ class HydronicS3 : public Component {
   void set_on_request_binary_sensor(binary_sensor::BinarySensor *s) { this->on_request_ = s; }
   void set_flame_binary_sensor(binary_sensor::BinarySensor *s) { this->flame_ = s; }
   void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { this->connected_ = s; }
+  void set_vehicle_fan_binary_sensor(binary_sensor::BinarySensor *s) { this->vehicle_fan_ = s; }
 #endif
 
   /// Heater status frames received within the stale timeout.
@@ -152,9 +153,15 @@ class HydronicS3 : public Component {
   void abort_command();
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
+  /// 054 B1 while "on", as the EasyStart's three modes: MODE_HEAT (burner), MODE_FAN
+  /// (vehicle fan only), MODE_RESIDUAL (water pump only, no burner).
+  void set_command_mode(uint8_t mode) { this->command_mode_ = mode; }
+  static constexpr uint8_t MODE_HEAT = 0x01;
+  static constexpr uint8_t MODE_FAN = 0x02;
+  static constexpr uint8_t MODE_RESIDUAL = 0x03;
   /// The DIDs behind the DidSensor values and the flame flag.
   static std::vector<uint16_t> sensor_dids() {
-    return {0xFD01, 0xFD04, 0xFD08, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17, 0xFD35};
+    return {0xFD01, 0xFD04, 0xFD08, 0xFD09, 0xFD0A, 0xFD0C, 0xFD0D, 0xFD0F, 0xFD10, 0xFD11, 0xFD17, 0xFD35, 0xFEFF};
   }
   /// Switches the bus controller between listen-only (true) and normal mode.
   void set_listen_only_hook(std::function<bool(bool)> hook) { this->listen_only_hook_ = std::move(hook); }
@@ -232,9 +239,10 @@ class HydronicS3 : public Component {
   float did_inlet_c_{NAN}, did_outlet_c_{NAN};  // FD01, same sweep as FD11 (flow estimate)
   bool flow_valid_{false};  // flow estimate hysteresis state
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
-  uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0};
+  uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0}, fan_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};
   bool command_on_{false};
+  uint8_t command_mode_{MODE_HEAT};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
   uint32_t command_lease_ms_{0};
@@ -292,6 +300,7 @@ class HydronicS3 : public Component {
   binary_sensor::BinarySensor *on_request_{nullptr};
   binary_sensor::BinarySensor *flame_{nullptr};
   binary_sensor::BinarySensor *connected_{nullptr};
+  binary_sensor::BinarySensor *vehicle_fan_{nullptr};
 #endif
 };
 

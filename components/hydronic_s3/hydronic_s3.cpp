@@ -104,6 +104,10 @@ const char *HydronicS3::state_name(int state) {
     case 0x41:
     case 0xC1:
       return "Stopping";  // briefly at the end of a run (10-10), then 03
+    case 0x21:
+      return "Fan";  // 054 B1 02: vehicle fan only (10-11)
+    case 0x81:
+      return "Residual heat";  // 054 B1 03: water pump only, no burner (10-11)
     case STATE_FAULT:
       return "Fault (?)";  // Airtronic value, not seen on this heater
     default:
@@ -138,6 +142,8 @@ static const PhaseName PHASES[] = {
     {0x1F, "Run-down", "Run-down to pause"},
     {0x1E, "Shutdown", "Run-down (switched off)"},
     {0xC8, "Blocked", "Blocked (see fault codes)"},  // start hold (P000252/P000250), also after P000307
+    {0xDC, "Residual", "Residual heat (pump only)"},  // 054 B1 03, FD10 B0 04, 2C4 state 81
+    {0xD2, "Fan", "Fan (vehicle fan only)"},  // 054 B1 02, FD10 B0 03, 2C4 state 21
 };
 
 const char *HydronicS3::phase_name(int phase) {
@@ -236,6 +242,8 @@ void HydronicS3::expire_stale_() {
 #ifdef USE_BINARY_SENSOR
   if (stale(this->flame_ms_) && this->flame_ != nullptr)
     this->flame_->invalidate_state();
+  if (stale(this->fan_ms_) && this->vehicle_fan_ != nullptr)
+    this->vehicle_fan_->invalidate_state();
 #endif
 #ifdef USE_SENSOR
   for (size_t i = 0; i < DID_SENSOR_COUNT; i++) {
@@ -381,7 +389,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       this->update_mode_();
     }
     if ((data[2] & START_HOLD) && !(this->fault_code_ >= 0 && (this->fault_code_ & START_HOLD)) &&
-        this->command_on_ && this->retry_until_ms_ == 0) {
+        this->command_on_ && this->command_mode_ == MODE_HEAT && this->retry_until_ms_ == 0) {
       if (this->start_retries_ < START_RETRIES) {
         this->start_retries_++;
         this->retry_until_ms_ = millis() + RETRY_OFF_MS;
@@ -565,8 +573,9 @@ void HydronicS3::command_loop_() {
     this->retry_until_ms_ = 0;
     ESP_LOGI(TAG, "start retry %u: on", this->start_retries_);
   }
-  const uint8_t on = this->command_on_ && ready && this->retry_until_ms_ == 0 ? 0x01 : 0x00;
-  const uint8_t command[8] = {on, on, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  const bool on = this->command_on_ && ready && this->retry_until_ms_ == 0;
+  const uint8_t command[8] = {on ? uint8_t(0x01) : uint8_t(0x00), on ? this->command_mode_ : uint8_t(0x00),
+                              0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
   static const uint8_t SETPOINT[8] = {0x10, 0x27, 0, 0, 0, 0, 0, 0};  // 10000, meaning unknown
   static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
   this->queue_(ID_COMMAND, command, 8);
@@ -981,6 +990,11 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
   if (did == 0xFD0F && n >= 1 && this->flame_ != nullptr) {
     this->flame_ms_ = millis();
     this->flame_->publish_state(d[0] & 0x01);
+  }
+  // FEFF B17 bit 3: vehicle blower relay (on at once in fan mode; on a cold start once the loop is warm).
+  if (did == 0xFEFF && n >= 18 && this->vehicle_fan_ != nullptr) {
+    this->fan_ms_ = millis();
+    this->vehicle_fan_->publish_state(d[17] & 0x08);
   }
 #endif
 }

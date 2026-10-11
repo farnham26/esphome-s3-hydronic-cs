@@ -487,3 +487,15 @@ Error memory cleared 13:48:55 (baseline 0). S+ series: 5 starts aborted at 4 s +
   (`19 02 FF`).
 - Warm-up run: flame 14:04:15; at minimum power with the mixer closed the heater went into control pause at
   **outlet 83.1 °C** (phase 14 → 1F, 14:07:36) — regular, not a fault.
+
+## Residual heat (2026-10-11 14:13, EasyStart menu)
+- **`054` `01 03`** (B1 03 = residual heat; `01 01` = heat) → **`2C4` state `81`**, **FD10 `04 DC`** (B0 04, phase
+  `DC`), FD0F B1 01. Blower 0, glow 0, fuel 0, no flame, inlet ≈ outlet: **water pump only**.
+
+## Fan mode and the vehicle blower relay (2026-10-11 14:16–14:19, EasyStart menu)
+- EasyStart ring colours: blue = fan, yellow = residual heat, red = heat.
+- **Fan mode: `054` `01 02`** → `2C4` state **`21`**, FD10 **`03 D2`** (phase D2); vehicle fan on at once.
+- Mode scheme: `054` B1 01 heat / 02 fan / 03 residual heat; FD10 B0 01 / 03 / 04; `2C4` state 05 / 21 / 81.
+- FD00–FD44 (all 49 answering DIDs) fan on vs. off: only FD01 and FD10 differ → relay not there.
+- **FEFF byte 17 bit 3 (0x08) = vehicle blower relay**: `00` fan off (14:18:40), `08` fan mode on (14:19:44/46),
+  `08` during heating (10-10). FEFF polled with the sensor DIDs → "Vehicle Fan" binary sensor.
