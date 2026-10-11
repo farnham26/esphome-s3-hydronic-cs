@@ -88,7 +88,7 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
   a clear logged/UI message; everything else (read-out, start/stop, polling) is unaffected. Wired to the
   existing "Clear Fault Codes" button (which previously sent the bare `14 FF FF FF` with no unlock and got
   NRC'd). Flashed and **confirmed working on the real heater, ~15:20**.
-- origin/master = 7270522 (all pushed; DTC-clear commits squashed, force-pushed 10-11).
+- All pushed to origin/master (DTC-clear commits squashed + force-pushed 10-11, then README/doc follow-up).
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
