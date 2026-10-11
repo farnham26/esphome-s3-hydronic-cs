@@ -117,6 +117,7 @@ const char *HydronicS3::phase_name(int phase) {
       return "Off";
     case 0x0A:  // cold start (13 °C): long glow, flame after ~64 s
     case 0x0C:  // warm start (56-70 °C): flame after ~15-60 s
+    case 0x0F:  // pre-start check (~2 s, 2C4 state 05/03/05 once), then 0x0C
       return "Start";
     case 0x14:
       return "Burn";
