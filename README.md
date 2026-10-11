@@ -93,6 +93,9 @@ All controls are in the web UI group **Heater Control**.
 | stop | `POST /switch/Heater%20Run/turn_off` | `heater_stop` |
 | state | `GET /switch/Heater%20Run` | entity `switch.heater_run` |
 
+- **Heater Mode**: what `Heater Run` starts, as the EasyStart's modes — **Heat** (burner), **Residual heat**
+  (water pump only, e.g. to spread an electrically heated reservoir through the vehicle) and **Fan** (vehicle fan
+  only). A mode change while running takes effect with the next command frame.
 - **Heater Run Watchdog** (minutes): `0` = run until stopped (default). Above 0 the heater is stopped
   unless `turn_on` is repeated within that time, for controllers that should fail safe.
 - A start hold (fault flag `0x40`) is retried up to three times, then the switch turns off.

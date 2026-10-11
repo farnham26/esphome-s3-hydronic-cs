@@ -3,6 +3,18 @@
 # wifi/api/ota as usual. Compile check: ../work/venv/bin/esphome compile example-twai.yaml
 esphome:
   name: hydronic-s3-twai
+  on_boot:
+    - priority: -100
+      then:
+        # Restored values do not run set_action: apply mode and watchdog once.
+        - lambda: |-
+            using hydronic_s3::HydronicS3;
+            const std::string m = id(heater_mode).current_option();
+            id(heater).set_command_mode(m == "Residual heat" ? HydronicS3::MODE_RESIDUAL
+                                        : m == "Fan"         ? HydronicS3::MODE_FAN
+                                                             : HydronicS3::MODE_HEAT);
+            if (!std::isnan(id(heater_watchdog).state))
+              id(heater).set_command_lease(id(heater_watchdog).state * 60000);
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -70,6 +82,21 @@ switch:
       - lambda: "id(heater).start_polling(esphome::hydronic_s3::HydronicS3::sensor_dids(), 5000);"
     turn_off_action:
       - lambda: "id(heater).stop_polling();"
+
+select:
+  - platform: template
+    id: heater_mode
+    name: "Heater Mode"
+    options: ["Heat", "Residual heat", "Fan"]
+    initial_option: "Heat"
+    optimistic: true
+    restore_value: true
+    set_action:
+      - lambda: |-
+          using hydronic_s3::HydronicS3;
+          id(heater).set_command_mode(x == "Residual heat" ? HydronicS3::MODE_RESIDUAL
+                                      : x == "Fan"         ? HydronicS3::MODE_FAN
+                                                           : HydronicS3::MODE_HEAT);
 
 number:
   - platform: template
