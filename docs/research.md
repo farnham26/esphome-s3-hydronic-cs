@@ -499,3 +499,17 @@ Error memory cleared 13:48:55 (baseline 0). S+ series: 5 starts aborted at 4 s +
 - FD00–FD44 (all 49 answering DIDs) fan on vs. off: only FD01 and FD10 differ → relay not there.
 - **FEFF byte 17 bit 3 (0x08) = vehicle blower relay**: `00` fan off (14:18:40), `08` fan mode on (14:19:44/46),
   `08` during heating (10-10). FEFF polled with the sensor DIDs → "Vehicle Fan" binary sensor.
+
+## Config burst decode, step 3: timers `067`/`068`/`069` = timer 1/2/3 (2026-10-11 14:21–14:26)
+Timer 1 set to Mo–Fr 07:00, heat, 30 min; activated/deactivated; start → 08:17:
+`067` `BE 3E 27 00 01 1E` (inactive) / `… 9E` (active) → `BE 3E 28 11 01 9E`.
+| Byte | Meaning |
+|---|---|
+| B0 | `BE`: open (`80` + `3E`?) |
+| B1 | weekdays (`3E` = Mo–Fr: bit 1 Mo … bit 5 Fr; bit 0 Su? bit 6 Sa?) |
+| B2 | bits 0–4 hour (07 → `27`, 08 → `28`), bit 5 flag (open) |
+| B3 | minute, binary (17 → `11`) |
+| B4 | mode (01 heat; 02 fan / 03 residual heat expected, as `054` B1) |
+| B5 | bit 7 = timer active, bits 0–6 = duration in minutes (`1E` = 30) |
+| B6 | change counter |
+- `10A` changes when entering the timer menu (`10 00 01 20 10 01` → `10 4E 40 22 10 01` → `10 4F 81 …`): open.
