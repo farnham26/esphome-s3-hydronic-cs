@@ -141,6 +141,9 @@ class HydronicS3 : public Component {
   }
   /// 0x2C4 B2 while in fault or its ~26 s aftermath, 0 otherwise; -1 until received.
   int fault_code() const { return this->fault_code_; }
+  /// Stored fault codes of the last 19 02 read ("P000250, ..."), "none", or empty until read.
+  /// Read automatically when the 0x2C4 flags rise (start hold, fault).
+  const std::string &fault_codes() const { return this->fault_codes_; }
   static const char *state_name(int state);
   /// FD10 B1 operating phase; nullptr if unknown.
   static const char *phase_name(int phase);
@@ -280,6 +283,7 @@ class HydronicS3 : public Component {
   uint32_t scan_rtt_max_ms_{0};
   void scan_answered_();
   int fault_code_{-1};
+  std::string fault_codes_;
   int phase_{-1};  // FD10 B1, last seen
   float did_inlet_c_{NAN}, did_outlet_c_{NAN};  // FD01, same sweep as FD11 (flow estimate)
   bool flow_valid_{false};  // flow estimate hysteresis state

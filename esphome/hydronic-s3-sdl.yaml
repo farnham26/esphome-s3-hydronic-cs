@@ -23,7 +23,8 @@ esphome:
             lv_obj_set_style_text_color(id(lbl_glow), lv_color_hex(0x909090), 0);
             lv_label_set_text(id(lbl_blower), "Blower 4120 rpm");
             lv_label_set_text(id(lbl_voltage), "26.1 V");
-            lv_label_set_text(id(lbl_heater), "active  ·  req on  ·  fault none");
+            lv_label_set_text(id(lbl_heater), "Running  ·  req on  ·  P000250");
+            lv_obj_set_style_text_color(id(lbl_heater), lv_color_hex(0xFF4040), 0);
             lv_label_set_text(id(lbl_refs), "Bat 100% full   10.22.10.73");
 
 host:

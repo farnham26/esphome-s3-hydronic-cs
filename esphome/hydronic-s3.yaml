@@ -290,9 +290,18 @@ interval:
           snprintf(buf, sizeof(buf), "%s V", v1);
           set(id(lbl_voltage), buf);
 
-          snprintf(buf, sizeof(buf), "%s  ·  req %s  ·  fault %s", name != nullptr ? name : code,
-                   rq < 0 ? "--" : rq == 1 ? "on" : "off", fc < 0 ? "--" : fc == 0 ? "none" : "set");
+          // Stored fault codes (read on a flags rise or the button) in red: first code, +N more.
+          static uint32_t c_heater = 0;
+          const std::string &codes = id(heater).fault_codes();
+          const bool stored = !codes.empty() && codes != "none";
+          std::string first = codes.substr(0, codes.find(','));
+          const size_t more = std::count(codes.begin(), codes.end(), ',');
+          if (stored && more > 0) first += " +" + std::to_string(more);
+          snprintf(buf, sizeof(buf), "%s  ·  req %s  ·  %s", name != nullptr ? name : code,
+                   rq < 0 ? "--" : rq == 1 ? "on" : "off",
+                   stored ? first.c_str() : fc < 0 ? "fault --" : fc == 0 ? "fault none" : "fault set");
           set(id(lbl_heater), buf);
+          fg(id(lbl_heater), c_heater, stored ? 0xFF4040 : 0xA0A0A0);
 
           snprintf(buf, sizeof(buf), "Bat %.0f%%%s   %s",
                    id(battery_level).state,
@@ -725,7 +734,7 @@ text_sensor:
       name: "Heater Fault Codes"
       icon: mdi:alert-octagon-outline
       web_server:
-        sorting_group_id: group_heater
+        sorting_group_id: group_control
     event:
       name: "Heater Event"
       icon: mdi:timeline-text-outline

@@ -504,6 +504,9 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     }
     if (data[2] != this->fault_code_) {
       this->event_("flags", this->fault_code_, data[2]);
+      // Flags only say "held/fault": fetch the stored codes (the EasyStart reads its own).
+      if (data[2] != 0 && this->fault_code_ <= 0 && !this->easystart_present_())
+        this->request_fault_codes(0x08);
       this->fault_code_ = data[2];
       std::string text = "OK";
       if (this->fault_code_ != 0) {
@@ -1095,6 +1098,7 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
   }
   if (text.empty())
     text = "none";
+  this->fault_codes_ = text;
   char head[48];
   snprintf(head, sizeof(head), "mask %02X: ", payload[2]);
   text = head + text;

@@ -20,8 +20,8 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
 | `esphome/research.yaml` | Research package (ID table via `research: true`, scans, UDS console, raw DIDs); drop for production. |
 | `esphome/example-twai.yaml` | Minimal integration on TWAI (`esp32_can`), no listen-only hook, bus-off recovery — template for tempcontrol. |
 | `esphome/ui/heater-ui.yaml` | LVGL UI (fonts, styles, pages), shared by the device and the SDL preview. |
-| `esphome/hydronic-s3-sdl.yaml` | SDL preview of the UI on the host (demo values); screenshots via `import -window` on XWayland. |
-| `README.md`, `docs/img/` | Human-facing README with screenshots (web UI: headless Chrome `--timeout=35000`; LCD: SDL). |
+| `esphome/hydronic-s3-sdl.yaml` | SDL preview of the UI on the host (demo values); screenshots: `SDL_VIDEODRIVER=dummy SDL_VIDEO_DUMMY_SAVE_FRAMES=1` writes exact 320x240 BMPs to the cwd. |
+| `README.md`, `docs/img/` | Human-facing README with screenshots (web UI: `tools/webshot.py URL OUT 15`, heater awake; LCD: SDL). |
 | `esphome/boards/m5stack-fire.yaml` | Board package (Fire v2.7: PSRAM, SD CS held high). |
 | `tools/m5.sh` | upload/logs by stable by-id path. `tools/bootlog.py`: reset + boot log over USB. |
 | `docs/research.md` | Protocol research (Airtronic S3 map, J1939 HTR, heater facts). |
@@ -87,6 +87,8 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 - **FEFF B21 = water pump current, B19 = fuel pump current** (10 mA; pump 0.78 A vs 0.70 ± 0.1 A external meter,
   ~18 W) → sensors; no blower current (BLDC). **Residual heat needs warm coolant** (65 °C ok, 47 °C refused →
   state `41`/`C1` "Residual off", phases `DD`/`DE`). Our `10A` verified as sent (log); heater use not observable.
+- 10-12: fault memory auto-read on a `2C4` flags rise (start hold → P000250 with pump unplugged); codes in red on the LCD,
+  "Heater Fault Codes" in Heater Control. Screenshots refreshed (web: `tools/webshot.py`, LCD: SDL dummy driver).
 - Next session: CAN heat run > 30 min (heater cut-off?) + ESP reboot mid-burn (controller loss).
 
 ## Next steps

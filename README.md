@@ -53,6 +53,18 @@ still open is listed in [`docs/research.md`](docs/research.md).
 | CAN tap | heater CAN H/L, 500 kbit/s, 11-bit IDs (EasyStart connector or diagnostic plug) |
 | Supply | 24 V vehicle → buck converter with ≥ 36 V input rating + TVS → 5 V |
 
+### Test setup
+
+The [M5Stack Fire v2.7](https://docs.m5stack.com/en/core/fire_v2.7) with the
+[COMMU module](https://docs.m5stack.com/en/module/commu) stacked underneath,
+tapped into the heater CAN at the EasyStart connector. The EasyStart is disconnected for control tests.
+
+<p align="center">
+  <a href="https://docs.m5stack.com/en/core/fire_v2.7"><img src="https://static-cdn.m5stack.com/resource/docs/products/core/fire_v2.7/fire_v2.6_01.webp" alt="M5Stack Fire v2.7" height="200"></a>
+  <a href="https://docs.m5stack.com/en/module/commu"><img src="https://static-cdn.m5stack.com/resource/docs/products/module/commu/commu_01.webp" alt="M5Stack COMMU" height="200"></a><br>
+  <em>M5Stack Fire v2.7 and COMMU (images: M5Stack)</em>
+</p>
+
 Hard-won details (see `CLAUDE.md`): the shared SPI bus must run on SPI3 (IOMUX pins) for clean
 8 MHz MCP2515 reads; leave the SD slot empty; the CAN reader runs in IRAM so flash writes and the
 display never cost frames.
