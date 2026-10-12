@@ -89,6 +89,15 @@ DID_SENSORS = {
             ("fuel_pump_current", "DID_FUEL_PUMP_CURRENT"),
         )
     },
+    "water_pump_power": (
+        "DID_WATER_PUMP_POWER",
+        dict(
+            unit_of_measurement=UNIT_WATT,
+            accuracy_decimals=1,
+            device_class=DEVICE_CLASS_POWER,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+    ),
     "metering_pump_rate": (
         "DID_METERING_PUMP_RATE",
         dict(

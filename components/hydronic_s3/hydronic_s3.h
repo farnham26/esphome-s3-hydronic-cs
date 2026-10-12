@@ -66,6 +66,7 @@ enum DidSensor : uint8_t {
   DID_WATER_FLOW,             // estimate: heating power / (coolant heat capacity x (outlet - inlet)), burning only
   DID_WATER_PUMP_CURRENT,     // FEFF B21 x 10 mA (unit likely: 0.78 A vs 0.70 +- 0.1 A measured, 10-11)
   DID_FUEL_PUMP_CURRENT,      // FEFF B19 x 10 mA (as B21; ~0.36 A while the metering pump runs)
+  DID_WATER_PUMP_POWER,       // water pump current x supply voltage (FD04): power at the heater's pump output
   DID_SENSOR_COUNT,
 };
 
@@ -286,6 +287,7 @@ class HydronicS3 : public Component {
   std::string fault_codes_;
   int phase_{-1};  // FD10 B1, last seen
   float did_inlet_c_{NAN}, did_outlet_c_{NAN};  // FD01, same sweep as FD11 (flow estimate)
+  float did_voltage_v_{NAN};                     // FD04 (pump power)
   bool flow_valid_{false};  // flow estimate hysteresis state
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
   uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0}, fan_ms_{0};

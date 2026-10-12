@@ -439,6 +439,11 @@ sensor:
       icon: mdi:pump
       web_server:
         sorting_group_id: group_components
+    water_pump_power:
+      name: "Water Pump Power"
+      icon: mdi:pump
+      web_server:
+        sorting_group_id: group_components
     fuel_pump_current:
       name: "Fuel Pump Current"
       icon: mdi:current-dc

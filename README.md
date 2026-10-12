@@ -35,6 +35,10 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
 
 ![Web UI](docs/img/web-ui.png)
 
+![Home Assistant dashboard](docs/img/ha-dashboard.png)
+<p align="center"><em>Home Assistant dashboard during a cold start
+  (<a href="docs/ha-dashboard.yaml"><code>docs/ha-dashboard.yaml</code></a>)</em></p>
+
 ## Status
 
 This is a working research project, not a product. Read-out is solid; start/stop works with the
@@ -82,6 +86,7 @@ display never cost frames.
 | `esphome/hydronic-s3-sdl.yaml` | UI preview on the PC (SDL), demo values |
 | `esphome/example-twai.yaml` | minimal integration on the ESP32's own CAN controller (TWAI), no MCP2515 |
 | `docs/research.md` | protocol research: frames, DIDs, phases, wake-up, start hold analysis |
+| `docs/ha-dashboard.yaml` | Home Assistant dashboard view (sections; charts need apexcharts-card) |
 
 ## Build and flash
 

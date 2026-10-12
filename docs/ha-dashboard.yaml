@@ -1,0 +1,497 @@
+# Home Assistant dashboard view for the Hydronic S3 adapter (esphome/hydronic-s3.yaml).
+# Paste into a dashboard's raw configuration editor (as a view). Entity IDs assume the
+# device name "hydronic-s3". Charts need apexcharts-card (HACS); everything else is built in.
+# Install-specific (adapt): back_path, the device page link, the cabin temperature sensor.
+views:
+  - title: Hydronic S3 Heater
+    path: hydronic
+    type: sections
+    icon: mdi:radiator
+    max_columns: 3
+    subview: true
+    back_path: /lovelace  # parent dashboard
+
+    sections:
+      # ------------------------------------------------------------ Operation
+      - type: grid
+        cards:
+          - type: heading
+            heading: Operation
+            heading_style: title
+            icon: mdi:fire
+            tap_action:
+              action: navigate
+              navigation_path: /config/devices/device/<your-device-id>  # adapter's device page
+            badges:
+              - type: entity
+                entity: binary_sensor.hydronic_s3_heater_connected
+                show_state: true
+                tap_action:
+                  action: more-info
+              - type: entity
+                entity: binary_sensor.hydronic_s3_flame
+                show_state: true
+                icon: mdi:fire
+                tap_action:
+                  action: more-info
+
+          - type: tile
+            entity: switch.hydronic_s3_heater_run
+            name: Heater
+            icon: mdi:radiator
+            features:
+              - type: toggle
+            features_position: inline
+            grid_options:
+              columns: 12
+          - type: tile
+            entity: select.hydronic_s3_heater_mode
+            name: Mode
+            features:
+              - type: select-options
+            grid_options:
+              columns: 12
+          - type: tile
+            entity: number.hydronic_s3_heater_run_watchdog
+            name: Run time limit
+            features:
+              - type: numeric-input
+                style: buttons
+            grid_options:
+              columns: 12
+
+          - type: tile
+            entity: sensor.hydronic_s3_heater_state
+            name: State
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_operating_phase_text
+            name: Phase
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_combustion
+            name: Combustion
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_request_source
+            name: Requested by
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: binary_sensor.hydronic_s3_water_pump
+            name: Water pump
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: binary_sensor.hydronic_s3_vehicle_fan
+            name: Vehicle fan
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_heater_fault
+            name: Fault
+            icon: mdi:alert-circle-outline
+            grid_options:
+              columns: 12
+
+          # ---------------------------------------------------------- Diagnostics
+          - type: heading
+            heading: Diagnostics
+            heading_style: title
+            icon: mdi:stethoscope
+          - type: tile
+            entity: sensor.hydronic_s3_heater_fault_codes
+            name: Fault memory
+            grid_options:
+              columns: 12
+          - type: tile
+            entity: button.hydronic_s3_read_fault_codes
+            name: Read faults
+            features:
+              - type: button
+            features_position: inline
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: button.hydronic_s3_clear_fault_codes
+            name: Clear faults
+            tap_action:
+              action: more-info  # no one-tap clear, on purpose
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_can_frame_rate
+            name: CAN frames
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_can_rx_error_counter
+            name: CAN RX errors
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: binary_sensor.hydronic_s3_status
+            name: Adapter
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_battery_level
+            name: Adapter battery
+            grid_options:
+              columns: 6
+
+      # ------------------------------------------------------------- Readings
+      - type: grid
+        cards:
+          - type: heading
+            heading: Readings
+            heading_style: title
+            icon: mdi:thermometer-water
+            badges:
+              - type: entity
+                entity: sensor.hydronic_s3_outlet_temperature
+                show_state: true
+                tap_action:
+                  action: more-info
+              - type: entity
+                entity: sensor.hydronic_s3_heating_power_estimated
+                show_state: true
+                tap_action:
+                  action: more-info
+
+          - type: tile
+            entity: sensor.hydronic_s3_inlet_temperature
+            name: Water inlet
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_outlet_temperature
+            name: Water outlet
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_flame_sensor_temperature
+            name: Flame sensor
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_control_unit_temperature
+            name: Control unit
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_heating_power_estimated
+            name: Heat output (est.)
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_fuel_consumption
+            name: Fuel consumption
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_supply_voltage
+            name: Supply voltage
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_blower_speed
+            name: Combustion blower
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_metering_pump_rate
+            name: Metering pump
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_glow_plug_power
+            name: Glow plug
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_water_pump_power
+            name: Water pump
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_water_flow_estimated
+            name: Water flow (est.)
+            grid_options:
+              columns: 6
+
+          # Water temperatures (left axis), cabin temperature (right axis).
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Water temperature
+              show_states: false
+            graph_span: 2h
+            yaxis:
+              - id: water
+                decimals: 0
+                apex_config:
+                  title:
+                    text: Water °C
+                    style:
+                      fontWeight: 400
+              - id: cabin
+                opposite: true
+                decimals: 1
+                apex_config:
+                  title:
+                    text: Cabin °C
+                    style:
+                      fontWeight: 400
+            series:
+              - entity: sensor.hydronic_s3_outlet_temperature
+                name: Outlet
+                color: red
+                yaxis_id: water
+                type: line
+                stroke_width: 1.5
+              - entity: sensor.hydronic_s3_inlet_temperature
+                name: Inlet
+                color: blue
+                yaxis_id: water
+                type: line
+                stroke_width: 1.5
+              - entity: sensor.cabin_temperature  # any cabin/room temperature sensor
+                name: Cabin
+                color: green
+                yaxis_id: cabin
+                type: line
+                stroke_width: 1.5
+            grid_options:
+              columns: full
+              rows: auto  # fixed rows make apexcharts overflow
+            apex_config:
+              chart:
+                height: 200
+                animations:
+                  enabled: false
+              legend:
+                show: true
+                position: bottom
+              grid:
+                strokeDashArray: 2
+              tooltip:
+                x:
+                  format: HH:mm
+
+          # Heat output (left axis), glow plug and water pump power (right axis).
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Burner
+              show_states: false
+            graph_span: 2h
+            yaxis:
+              - id: heat
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: Heat output W
+                    style:
+                      fontWeight: 400
+              - id: aux
+                min: 0
+                opposite: true
+                decimals: 0
+                apex_config:
+                  title:
+                    text: Glow plug / pump W
+                    style:
+                      fontWeight: 400
+            series:
+              - entity: sensor.hydronic_s3_heating_power_estimated
+                name: Heat output
+                color: orange
+                yaxis_id: heat
+                type: line
+                stroke_width: 1.5
+              - entity: sensor.hydronic_s3_glow_plug_power
+                name: Glow plug
+                color: purple
+                yaxis_id: aux
+                type: line
+                curve: stepline
+                stroke_width: 1.5
+              - entity: sensor.hydronic_s3_water_pump_power
+                name: Water pump
+                color: teal
+                yaxis_id: aux
+                type: line
+                curve: stepline
+                stroke_width: 1.5
+            grid_options:
+              columns: full
+              rows: auto
+            apex_config:
+              chart:
+                height: 200
+                animations:
+                  enabled: false
+              legend:
+                show: true
+                position: bottom
+              grid:
+                strokeDashArray: 2
+              tooltip:
+                x:
+                  format: HH:mm
+
+      # --------------------------------------------- Timers (esphome/timers.yaml)
+      - type: grid
+        cards:
+          - type: heading
+            heading: Timer
+            heading_style: title
+            icon: mdi:timer-cog-outline
+
+          - type: heading
+            heading: Timer 1
+            heading_style: subtitle
+          - type: tile
+            entity: switch.hydronic_s3_timer_1_active
+            name: Active
+            features:
+              - type: toggle
+            features_position: inline
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: time.hydronic_s3_timer_1_start
+            name: Start
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: select.hydronic_s3_timer_1_days
+            name: Days
+            grid_options:
+              columns: 4
+          - type: tile
+            entity: select.hydronic_s3_timer_1_mode
+            name: Mode
+            grid_options:
+              columns: 4
+          - type: tile
+            entity: number.hydronic_s3_timer_1_duration
+            name: Duration
+            grid_options:
+              columns: 4
+
+          - type: heading
+            heading: Timer 2
+            heading_style: subtitle
+          - type: tile
+            entity: switch.hydronic_s3_timer_2_active
+            name: Active
+            features:
+              - type: toggle
+            features_position: inline
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: time.hydronic_s3_timer_2_start
+            name: Start
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: select.hydronic_s3_timer_2_days
+            name: Days
+            grid_options:
+              columns: 4
+          - type: tile
+            entity: select.hydronic_s3_timer_2_mode
+            name: Mode
+            grid_options:
+              columns: 4
+          - type: tile
+            entity: number.hydronic_s3_timer_2_duration
+            name: Duration
+            grid_options:
+              columns: 4
+
+          - type: heading
+            heading: Timer 3
+            heading_style: subtitle
+          - type: tile
+            entity: switch.hydronic_s3_timer_3_active
+            name: Active
+            features:
+              - type: toggle
+            features_position: inline
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: time.hydronic_s3_timer_3_start
+            name: Start
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: select.hydronic_s3_timer_3_days
+            name: Days
+            grid_options:
+              columns: 4
+          - type: tile
+            entity: select.hydronic_s3_timer_3_mode
+            name: Mode
+            grid_options:
+              columns: 4
+          - type: tile
+            entity: number.hydronic_s3_timer_3_duration
+            name: Duration
+            grid_options:
+              columns: 4
+
+          # ---------------------------------------------------------- Statistics
+          - type: heading
+            heading: Statistics
+            heading_style: title
+            icon: mdi:chart-bar
+          - type: tile
+            entity: sensor.hydronic_s3_operating_hours
+            name: Operating hours
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_fuel_total
+            name: Fuel total
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_hours_power_0_25
+            name: "0–25 %"
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.hydronic_s3_hours_power_25_50
+            name: "25–50 %"
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.hydronic_s3_hours_power_50_75
+            name: "50–75 %"
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.hydronic_s3_hours_power_75_100
+            name: "75–100 %"
+            grid_options:
+              columns: 3
+          - type: tile
+            entity: sensor.hydronic_s3_hours_control_pause
+            name: Control pause
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.hydronic_s3_hours_altitude_mode
+            name: Altitude mode
+            icon: mdi:image-filter-hdr
+            grid_options:
+              columns: 6

@@ -1150,8 +1150,10 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
         this->did_outlet_c_ = u16(4) / 100.0f - 50.0f;
       break;
     case 0xFD04:
-      if (n >= 2)
+      if (n >= 2) {
         pub(DID_SUPPLY_VOLTAGE, u16(0) / 10.0f);
+        this->did_voltage_v_ = u16(0) / 10.0f;
+      }
       break;
     case 0xFD08:
       if (n >= 2)
@@ -1241,6 +1243,8 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
       if (n >= 22) {
         pub(DID_FUEL_PUMP_CURRENT, d[19] / 100.0f);
         pub(DID_WATER_PUMP_CURRENT, d[21] / 100.0f);
+        if (!std::isnan(this->did_voltage_v_))
+          pub(DID_WATER_PUMP_POWER, d[21] / 100.0f * this->did_voltage_v_);
       }
       break;
     case 0xFD17:
