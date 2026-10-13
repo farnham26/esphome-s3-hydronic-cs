@@ -564,11 +564,8 @@ void HydronicS3::send_uds_request(const std::string &hex) {
   std::copy(payload.begin(), payload.end(), frame.begin() + 1);
   this->diag_requested_ = true;
   this->single_until_ms_ = millis() + 3000;
-  const bool sent = this->canbus_->send_data(ID_DIAG_REQUEST, false, frame) == canbus::ERROR_OK;
-  if (sent)
-    ESP_LOGI(TAG, "UDS request %s sent", hex.c_str());
-  else
-    ESP_LOGW(TAG, "UDS request %s send failed", hex.c_str());
+  this->send_diag_(frame);
+  ESP_LOGI(TAG, "UDS request %s queued", hex.c_str());
 }
 
 void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
@@ -710,13 +707,25 @@ void HydronicS3::queue_(uint16_t id, const uint8_t *data, uint8_t len) {
   this->tx_queue_.push_back(f);
 }
 
+// The only TX path: controller and diagnostic frames share the controller's few TX
+// buffers in order, so "all buffers busy" is never mistaken for a dead bus.
 void HydronicS3::drain_tx_() {
   while (!this->tx_queue_.empty()) {
     const TxFrame &f = this->tx_queue_.front();
-    if (this->canbus_->send_data(f.id, false, std::vector<uint8_t>(f.data, f.data + f.len)) != canbus::ERROR_OK)
+    const canbus::Error err = this->canbus_->send_data(f.id, false, std::vector<uint8_t>(f.data, f.data + f.len));
+    if (err == canbus::ERROR_ALLTXBUSY)
       return;  // buffers busy: next loop
+    if (err != canbus::ERROR_OK) {
+      this->send_failed_();  // no ack (MCP2515 ERROR_FAILTX) or controller error; frame kept
+      return;
+    }
     this->tx_queue_.pop_front();
   }
+}
+
+void HydronicS3::send_diag_(const std::vector<uint8_t> &frame) {
+  this->queue_(ID_DIAG_REQUEST, frame.data(), frame.size());
+  this->drain_tx_();
 }
 
 // As the EasyStart at its power-up: config burst once, but only while we command — a
@@ -850,23 +859,22 @@ void HydronicS3::loop() {
   this->scan_awaiting_ = true;
   this->scan_sent_ms_ = now;
   this->scan_timeout_ms_ = DIAG_TIMEOUT_MS;
-  if (this->canbus_->send_data(ID_DIAG_REQUEST, false, req) != canbus::ERROR_OK)
-    this->send_failed_();
+  this->send_diag_(req);
 }
 
-// No ack on the bus keeps every TX buffer pending (disconnected bus, heater and
-// EasyStart unpowered), so each further send fails. Stop the scan or sweep; a
-// received frame proves the bus is back (on_frame_()): a pending request is acked
-// then and answered, or the heater broadcasts its status.
+// No ack on the bus (disconnected bus, heater and EasyStart unpowered): the driver
+// aborts the unacked frames (drain_tx_()). Stop the scan or sweep; a received frame
+// proves the bus is back (on_frame_()): the heater broadcasts its status.
 void HydronicS3::send_failed_() {
+  const bool scan = this->scan_active_ && !this->polling_;
   this->scan_awaiting_ = false;
   this->scan_active_ = false;
   this->diag_requested_ = false;
   this->isotp_len_ = 0;
-  if (!this->polling_) {
+  if (scan) {
     this->update_mode_();
     this->publish_diag_("scan aborted: send failed");
-  } else if (!this->tx_down_) {
+  } else if (this->polling_ && !this->tx_down_) {
     ESP_LOGW(TAG, "send failed, polling paused until frames are received");
   }
   this->tx_down_ = true;
@@ -896,8 +904,8 @@ void HydronicS3::request_fault_codes(uint8_t status_mask) {
   this->single_until_ms_ = millis() + 3000;  // answer window, then back to listen-only
   this->diag_requested_ = true;
   const std::vector<uint8_t> req{0x03, 0x19, 0x02, status_mask, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
-  const canbus::Error err = this->canbus_->send_data(ID_DIAG_REQUEST, false, req);
-  ESP_LOGI(TAG, "fault code request (mask %02X): %s", status_mask, err == canbus::ERROR_OK ? "sent" : "send failed");
+  this->send_diag_(req);
+  ESP_LOGI(TAG, "fault code request (mask %02X) queued", status_mask);
 }
 
 void HydronicS3::clear_dtc() {
@@ -920,9 +928,8 @@ void HydronicS3::clear_send_(const std::vector<uint8_t> &payload) {
   std::copy(payload.begin(), payload.end(), frame.begin() + 1);
   this->diag_requested_ = true;
   this->single_until_ms_ = millis() + 3000;
-  this->clear_deadline_ms_ = millis() + CLEAR_STEP_TIMEOUT_MS;
-  if (this->canbus_->send_data(ID_DIAG_REQUEST, false, frame) != canbus::ERROR_OK)
-    this->clear_abort_("send failed");
+  this->clear_deadline_ms_ = millis() + CLEAR_STEP_TIMEOUT_MS;  // also covers a lost frame
+  this->send_diag_(frame);
 }
 
 void HydronicS3::clear_abort_(const char *why) {
@@ -1007,7 +1014,7 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
       if (this->diag_requested_) {
         // Flow control: continue, no block limit, STmin 20 ms (as the EasyStart).
         const std::vector<uint8_t> fc{0x30, 0x00, 0x14, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
-        this->canbus_->send_data(ID_DIAG_REQUEST, false, fc);
+        this->send_diag_(fc);
       }
       break;
     case 0x2:  // consecutive frame

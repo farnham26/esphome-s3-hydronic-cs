@@ -570,6 +570,7 @@ canbus::Error MCP2515::send_message(struct canbus::CanFrame *frame) {
       if (failed & (1 << tx_buffer))
         modify_register_(TXB[tx_buffer].CTRL, TXB_TXREQ, 0);
     ESP_LOGI(TAG, "TX aborted (no ack), buffers %02X", failed);
+    rc = canbus::ERROR_FAILTX;  // not merely busy: callers treat this as the bus being down
   }
 
   if (this->spi_mutex_ != nullptr)

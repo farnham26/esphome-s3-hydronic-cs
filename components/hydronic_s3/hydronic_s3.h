@@ -324,6 +324,7 @@ class HydronicS3 : public Component {
   std::deque<TxFrame> tx_queue_;
   void queue_(uint16_t id, const uint8_t *data, uint8_t len);
   void drain_tx_();
+  void send_diag_(const std::vector<uint8_t> &frame);  // queued behind controller frames
   bool commanding_() const { return this->command_on_ || this->command_until_ms_ != 0; }
   uint8_t idle_sweeps_{0};  // sweeps left while the heater is idle
   bool rundown_{false};     // 2C4 B1 bit 3: burner run-down, also under state 03
