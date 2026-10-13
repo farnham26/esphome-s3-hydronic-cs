@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "esphome/components/canbus/canbus.h"
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #ifdef USE_SENSOR
@@ -213,6 +214,9 @@ class HydronicS3 : public Component {
   /// Key: CAN ID, bit 31 set for extended IDs.
   const std::map<uint32_t, IdState> &ids() const { return this->ids_; }
   uint32_t frames() const { return this->frames_; }
+  /// Every logged transition (what, from, to), plus named ones: burner_starting, flame_stable,
+  /// control_pause, idle (FD10 phase, polled), residual_end (2C4 state C1). Called from loop().
+  template<typename F> void add_on_event_callback(F &&callback) { this->event_callback_.add(std::forward<F>(callback)); }
 
  protected:
   void on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data);
@@ -222,6 +226,15 @@ class HydronicS3 : public Component {
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
   void event_(const char *what, int from, int to);
+  void phase_events_(int from, int to);
+  struct PendingEvent {
+    const char *what;  // string literal
+    int from, to;
+  };
+  // Dispatched from loop(): decode_() raises events before its state is updated, and a
+  // callback may command the heater.
+  std::vector<PendingEvent> pending_events_;
+  CallbackManager<void(std::string, int, int)> event_callback_;
   void diag_response_(const std::vector<uint8_t> &data);
   void uds_(const std::vector<uint8_t> &payload);
   void clear_send_(const std::vector<uint8_t> &payload);
@@ -363,6 +376,14 @@ class HydronicS3 : public Component {
   binary_sensor::BinarySensor *vehicle_fan_{nullptr};
   binary_sensor::BinarySensor *request_{nullptr};
 #endif
+};
+
+class EventTrigger : public Trigger<std::string, int, int> {
+ public:
+  explicit EventTrigger(HydronicS3 *parent) {
+    parent->add_on_event_callback(
+        [this](const std::string &what, int from, int to) { this->trigger(what, from, to); });
+  }
 };
 
 }  // namespace esphome::hydronic_s3

@@ -125,6 +125,12 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 9. Clean-up done 10-11: listen-only hook optional, `research:` switch, research package + `hydronic_s3_research.cpp`,
    TWAI example compiles. tempcontrol will include the component on TWAI (S+/running lines become CAN). Open:
    zero-loss MCP2515 read in an IRAM ISR (Fire only).
+10. Regulator (10-13, `on_event` + README "Stopping from a regulator", example in `example-twai.yaml`): verify event
+   order on the device (OTA pending, Fire battery empty). Candidates (some from Afterburner): fuel gauge with refill
+   reset + start refusal on reserve (avoid P00012B), LVC on FD04 compensated for glow current, residual heat after a
+   burn (test heat→residual at pause entry, residual end temperature; a deeper discharge also lengthens the
+   high-power phase of the next burn). Rejected: forced full-power "hot burn" — needs a heat sink ≥ Pmax (cold water),
+   not available from van emitters (regulation seen ≤ 40 %); an air-heater idea.
 
 ## Uncertain decodes (verify when they show up)
 - `2C4` B0 state names: `00` Booting, `03` Ready, `05` Running are solid; `41`/`C1` = residual heat refused/ended ("Residual off", 10-11 19:18, coolant 47 °C);

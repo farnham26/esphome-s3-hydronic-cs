@@ -47,6 +47,42 @@ canbus:
 hydronic_s3:
   id: heater
   canbus_id: heater_can
+  # Heater transitions: what, from, to. Named: burner_starting, flame_stable, control_pause,
+  # idle (FD10 phase, lags by up to one poll), residual_end (2C4, 100 ms). Here: the regulator
+  # pattern from the README ("Stopping from a regulator").
+  on_event:
+    - lambda: |-
+        if (what == "burner_starting") id(burning) = true;
+        else if (what == "control_pause") id(burning) = false;
+        else if (what == "idle" || (what == "connected" && to == 0)) id(burning) = id(wait_idle) = false;
+        else return;
+        id(heater_regulate).execute();
+
+# Regulator output -> burner, without wasted cycles: off only while the burner is out (control
+# pause, or not started), never during a start; on again only after the run-down (idle). Heat mode
+# only: Fan / Residual heat have no burner phases, so a stop would wait for a pause that never comes.
+globals:
+  - id: heat_demand  # set by your regulator (here: the "Heat Demand" switch)
+    type: bool
+  - id: burning  # from our start request until control pause / idle
+    type: bool
+  - id: wait_idle  # stopped, run-down not finished
+    type: bool
+
+script:
+  - id: heater_regulate
+    then:
+      - lambda: |-
+          auto *h = id(heater);
+          if (id(heat_demand)) {
+            if (!h->command_on() && !id(wait_idle)) {
+              h->set_command(true);
+              id(burning) = true;  // the phase (burner_starting) follows only with the next poll
+            }
+          } else if (h->command_on() && !id(burning)) {
+            h->set_command(false);  // burner out: free stop, no restart at ~70 °C
+            id(wait_idle) = true;
+          }
 
 # esp32_can has no bus-off recovery: restart the controller after a bus-off.
 interval:
@@ -72,6 +108,17 @@ switch:
       - lambda: "id(heater).set_command(true);"
     turn_off_action:
       - lambda: "id(heater).set_command(false);"
+  - platform: template
+    id: heat_demand_switch
+    name: "Heat Demand"
+    lambda: "return id(heat_demand);"
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: "id(heat_demand) = true;"
+      - script.execute: heater_regulate
+    turn_off_action:
+      - lambda: "id(heat_demand) = false;"
+      - script.execute: heater_regulate
   # Polling of the live values; it stops by itself while the heater sleeps.
   - platform: template
     id: poll_dids

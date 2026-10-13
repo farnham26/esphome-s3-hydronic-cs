@@ -123,6 +123,19 @@ All controls are in the web UI group **Heater Control**.
   heater itself has no timer; the EasyStart runs its own.
 - **Clock**: with `time_id:` on `hydronic_s3` the heater gets our time (`10A`, as the EasyStart's
   time setting).
+- **`on_event:`** (automation on `hydronic_s3`, variables `what`, `from`, `to`): every logged transition
+  (`state`, `phase`, `flags`, `cmd`, `start failed`, ...) plus named ones for a regulator:
+  `burner_starting`, `flame_stable`, `control_pause`, `idle` (from the polled phase, lag up to one poll)
+  and `residual_end` (status frame). E.g. end a burn at the heater's own control pause instead of on a
+  timer (see `esphome/example-twai.yaml`).
+- **Stopping from a regulator** (avoid wasted burner cycles; each start costs glow energy, a fuel
+  stroke and soot):
+  1. Turn off at `control_pause`: the loop is fully charged and the burner is already out, so the stop
+     costs nothing and prevents the heater's own restart (~70 °C). The burn has also ended the heater's
+     own way, from minimum fuel rate in a hot chamber, instead of a forced stop at high power.
+  2. Never turn off between `burner_starting` and `flame_stable` (except for safety): that aborts a start.
+  3. After turning off, wait for `idle` (run-down finished, phase `00`) before counting any keep-off
+     time or turning on again; an early request restarts a hot burner (extra purge, phase `0D`).
 - A start hold (fault flag `0x40`) is retried up to three times, then the switch turns off.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).

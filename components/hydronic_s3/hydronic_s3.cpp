@@ -437,6 +437,23 @@ void HydronicS3::event_(const char *what, int from, int to) {
   if (this->event_text_ != nullptr)
     this->event_text_->publish_state(buf);
 #endif
+  if (this->event_callback_.size() != 0)
+    this->pending_events_.push_back({what, from, to});
+}
+
+static bool start_phase(int phase) { return phase == 0x0F || phase == 0x0D || phase == 0x0A || phase == 0x0C; }
+static bool pause_phase(int phase) { return phase == 0x1F || phase == 0x28; }
+
+// Named events on phase entry (also from unknown, -1: after a reconnect the current one fires).
+void HydronicS3::phase_events_(int from, int to) {
+  if (start_phase(to) && !start_phase(from))
+    this->event_("burner_starting", from, to);
+  if (to == 0x14 && from != 0x14)  // glow off, regulating
+    this->event_("flame_stable", from, to);
+  if (pause_phase(to) && !pause_phase(from))
+    this->event_("control_pause", from, to);
+  if (to == 0x00 && from > 0x00)
+    this->event_("idle", from, to);
 }
 
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
@@ -471,6 +488,8 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     }
     if (data[0] != this->state_) {
       this->event_("state", this->state_, data[0]);
+      if (data[0] == 0xC1)  // residual heat ended or refused (coolant too cold)
+        this->event_("residual_end", this->state_, data[0]);
       this->state_ = data[0];
       this->idle_sweeps_ = IDLE_SWEEPS;
       this->update_mode_();
@@ -790,6 +809,12 @@ bool HydronicS3::clock_frame_(uint8_t out[6]) {
 }
 
 void HydronicS3::loop() {
+  if (!this->pending_events_.empty()) {
+    std::vector<PendingEvent> events;
+    events.swap(this->pending_events_);
+    for (const auto &e : events)
+      this->event_callback_.call(std::string(e.what), e.from, e.to);
+  }
   if (this->burst_due_ms_ != 0)
     this->burst_loop_();
   if (this->commanding_())
@@ -1192,6 +1217,7 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
       if (n >= 2) {
         if (d[1] != this->phase_) {
           this->event_("phase", this->phase_, d[1]);
+          this->phase_events_(this->phase_, d[1]);
           if (phase_name(d[1]) == nullptr)
             ESP_LOGW(TAG, "unknown phase 0x%02X (FD10: %02X %02X ...)", d[1], d[0], d[1]);
           this->phase_ = d[1];
