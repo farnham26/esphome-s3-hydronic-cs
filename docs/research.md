@@ -346,6 +346,7 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
 Start fuel 70–73 µl/s (~39 % ≈ 2.2 kW) until outlet ≈75 °C; steps 67/64/61 at 75–77 °C; minimum 41 µl/s (1300 W)
 from ≈77 °C; pause at ≈83 °C; restart at ≈70.5 °C. Never above 40 % → upper regulation unseen. FD33
 (`02 46 64 47 5F 48 5A 49 50 4A 46 4B 3C 4C 00` = pairs 70/100 … 76/0?) does not match this as outlet→% curve; open.
+(Full power seen later, 23:29 below.)
 
 ### Identification (text sensors)
 F193 HW 03.04.02, F195 SW 07.04.04, F1F0 BCD part 25.2745.01.5001 (D6L order no. 25.2745.05.0000), F1F5 serial

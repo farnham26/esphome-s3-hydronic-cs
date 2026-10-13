@@ -92,6 +92,8 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 - 10-12 evening: CAN run ≥ 2 h, no heater cut-off; OTA mid-run → run-down, P000307 + P000440 (P000440 active until the
   heater sleeps), no lock. TX-queue fix for "send failed" (97453a1) verified 10-13 in a fan run: 0 after wake.
 - 10-13: `docs/dtc.md` (DTC table). Device = 97453a1.
+- 10-13 eve: scan-state fixes (`sweep_` flag; range scan past poll-list end), request pre-empts sweep,
+  lost-NRC-during-single fix, silent-DID log line; OTA'd + verified. Public docs: plain-English names only.
 - Pump plan (clamp on order; results → `docs/research.md` water pump):
   1. Clamp on VT, heater side of the diode (DC/DC input capacitance hides PWM): square wave = supply PWM, flat = none.
   2. Capture start / full burn / MIN / control pause / run-down / residual; duty tracking power = control.

@@ -274,6 +274,7 @@ class HydronicS3 : public Component {
   void publish_diag_(const std::string &text);
   std::function<bool(bool)> listen_only_hook_;
   bool scan_active_{false};
+  bool sweep_{false};  // the active scan is a poll sweep over sweep_dids_, not a range scan
   bool scan_awaiting_{false};
   uint32_t scan_next_{0};  // 32 bit: a scan up to FFFF must not wrap
   uint32_t scan_last_{0};

@@ -61,6 +61,8 @@ void HydronicS3::scan_dids(uint16_t first, uint16_t last) { this->start_scan_(0x
 void HydronicS3::scan_local_ids(uint8_t first, uint8_t last) { this->start_scan_(0x21, first, last); }
 
 void HydronicS3::start_scan_(uint8_t service, uint32_t first, uint32_t last) {
+  if (this->sweep_)  // pre-empt a poll sweep (its pending answer is still awaited); polling resumes after the scan
+    this->scan_active_ = false;
   if (this->scan_active_ || !this->set_listen_only_(false)) {
     ESP_LOGW(TAG, "scan not started");
     return;
@@ -68,7 +70,7 @@ void HydronicS3::start_scan_(uint8_t service, uint32_t first, uint32_t last) {
   this->scan_service_ = service;
   std::fill(std::begin(this->nrc_count_), std::end(this->nrc_count_), 0);
   this->scan_active_ = true;
-  this->scan_awaiting_ = false;
+  this->sweep_ = false;
   this->scan_next_ = first;
   this->scan_last_ = last;
   this->scan_positive_ = this->scan_negative_ = this->scan_silent_ = 0;

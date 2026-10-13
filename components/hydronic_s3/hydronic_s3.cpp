@@ -293,7 +293,7 @@ void HydronicS3::expire_stale_() {
     this->isotp_len_ = 0;
     // Listen-only while the heater is away: do not ack (and so alter) a wake-up by
     // another node, and do not wake the heater with our requests.
-    if (this->polling_) {
+    if (this->sweep_) {
       this->scan_active_ = this->scan_awaiting_ = false;
       this->update_mode_();
     }
@@ -573,7 +573,9 @@ void HydronicS3::send_uds_request(const std::string &hex) {
     payload.push_back(static_cast<uint8_t>(strtoul(hex.substr(i, 2).c_str(), nullptr, 16)));
     i += 2;
   }
-  // Single frame only: up to 7 payload bytes.
+  // Single frame only: up to 7 payload bytes. Pre-empts a poll sweep (the next interval restarts it).
+  if (this->sweep_)
+    this->scan_active_ = this->scan_awaiting_ = false;
   if (payload.empty() || payload.size() > 7 || this->scan_active_ || !this->set_listen_only_(false)) {
     ESP_LOGW(TAG, "UDS request '%s' not sent", hex.c_str());
     return;
@@ -602,8 +604,10 @@ void HydronicS3::stop_polling() {
   if (!this->polling_)
     return;
   this->polling_ = false;
-  this->scan_active_ = this->scan_awaiting_ = false;  // a sweep in progress
-  this->diag_requested_ = false;
+  if (this->sweep_) {  // a sweep in progress
+    this->scan_active_ = this->scan_awaiting_ = false;
+    this->diag_requested_ = false;
+  }
   this->update_mode_();
 }
 
@@ -835,7 +839,7 @@ void HydronicS3::loop() {
     this->sweep_dids_.insert(this->sweep_dids_.end(), this->ident_dids_.begin(), this->ident_dids_.end());
     this->scan_last_ = this->sweep_dids_.size() - 1;
     this->scan_awaiting_ = false;
-    this->scan_active_ = true;
+    this->scan_active_ = this->sweep_ = true;
   }
   if (this->single_until_ms_ != 0 && static_cast<int32_t>(millis() - this->single_until_ms_) >= 0) {
     this->single_until_ms_ = 0;
@@ -850,8 +854,10 @@ void HydronicS3::loop() {
       return;
     this->scan_awaiting_ = false;
     this->scan_silent_++;
+    ESP_LOGD(TAG, "scan %02X %04X: no answer", this->scan_service_,
+             (unsigned) (this->sweep_ ? this->sweep_dids_[this->scan_next_ - 1] : this->scan_next_ - 1));
   }
-  if (this->scan_next_ > this->scan_last_ && this->polling_) {  // sweep done
+  if (this->scan_next_ > this->scan_last_ && this->sweep_) {  // sweep done
     this->scan_active_ = false;
     this->update_mode_();  // listen-only once an idle heater's sweeps are used up
     return;
@@ -873,7 +879,7 @@ void HydronicS3::loop() {
   }
   if (!this->tx_queue_.empty())  // controller frames first: they would fill the TX buffers
     return;
-  const uint16_t id = this->polling_ ? this->sweep_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
+  const uint16_t id = this->sweep_ ? this->sweep_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
   std::vector<uint8_t> req;
   if (this->scan_service_ == 0x21)
     req = {0x02, 0x21, static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
@@ -891,7 +897,7 @@ void HydronicS3::loop() {
 // aborts the unacked frames (drain_tx_()). Stop the scan or sweep; a received frame
 // proves the bus is back (on_frame_()): the heater broadcasts its status.
 void HydronicS3::send_failed_() {
-  const bool scan = this->scan_active_ && !this->polling_;
+  const bool scan = this->scan_active_ && !this->sweep_;
   this->scan_awaiting_ = false;
   this->scan_active_ = false;
   this->diag_requested_ = false;
@@ -1089,7 +1095,9 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
     this->publish_diag_(text);
     return;
   }
-  if (payload.size() >= 3 && payload[0] == 0x7F && this->single_until_ms_ != 0) {
+  // A single request's negative answer; one for a pending scan request belongs to the scan.
+  if (payload.size() >= 3 && payload[0] == 0x7F && this->single_until_ms_ != 0 &&
+      !(this->scan_awaiting_ && payload[1] == this->scan_service_)) {
     char buf[40];
     snprintf(buf, sizeof(buf), "negative: service %02X NRC %02X", payload[1], payload[2]);
     if (payload[2] != NRC_RESPONSE_PENDING)
