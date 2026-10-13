@@ -89,13 +89,20 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
   state `41`/`C1` "Residual off", phases `DD`/`DE`). Our `10A` verified as sent (log); heater use not observable.
 - 10-12: fault memory auto-read on a `2C4` flags rise (start hold → P000250 with pump unplugged); codes in red on the LCD,
   "Heater Fault Codes" in Heater Control. Screenshots refreshed (web: `tools/webshot.py`, LCD: SDL dummy driver).
-- Next session: CAN heat run > 30 min (heater cut-off?) + ESP reboot mid-burn (controller loss).
+- 10-12 evening: CAN run ≥ 2 h, no heater cut-off; OTA mid-run → run-down, P000307 + P000440 (P000440 active until the
+  heater sleeps), no lock. TX-queue fix for "send failed" (97453a1) verified 10-13 in a fan run: 0 after wake.
+- 10-13: `docs/dtc.md` (DTC table). Device = 97453a1.
+- Pump plan (clamp on order; results → `docs/research.md` water pump):
+  1. Clamp on VT, heater side of the diode (DC/DC input capacitance hides PWM): square wave = supply PWM, flat = none.
+  2. Capture start / full burn / MIN / control pause / run-down / residual; duty tracking power = control.
+  3. Clamp mean vs FEFF B21 (heater's own pump current).
+  4. DC/DC voltage sweep: current, flow, stall/restart voltage → voltage speed control of the D5 Vario.
 
 ## Next steps
 1. Done 10-11: bus wake (EasyStart = CAN, `60D` retries), EasyStart start (no hold, phase `0A`), 10 min run
    (timer in the EasyStart), polling state machine (heater sleeps), EasyStart back-off. See `docs/research.md`.
 2. Target: **replace the EasyStart completely**. Still open with it disconnected: **run time** (> 30 min: indefinite
-   or heater cut-off?), **controller loss mid-run** (ESP reboot/OTA: timeout, P000307 lock?), `60D` keep-alive
+   or heater cut-off?) → none (≥ 2 h, 10-12), **controller loss mid-run** → run-down, P000307 + P000440, no lock (10-12); `60D` keep-alive
    required/checked?, `055`/`056` (`10 27`) = power/setpoint? Done: DTC clear, S+ coexistence, start hold.
 3. Start/stop by us ("Heater" switch, REST `/switch/Heater%20Run/turn_on|turn_off` (watchdog "Heater Run Watchdog", 0 = indefinite), API `heater_start|stop`) needs the
    EasyStart **off the bus** (it wakes on our frames and sends off). Test that: start, regulation, stop, and

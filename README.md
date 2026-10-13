@@ -86,6 +86,7 @@ display never cost frames.
 | `esphome/hydronic-s3-sdl.yaml` | UI preview on the PC (SDL), demo values |
 | `esphome/example-twai.yaml` | minimal integration on the ESP32's own CAN controller (TWAI), no MCP2515 |
 | `docs/research.md` | protocol research: frames, DIDs, phases, wake-up, start hold analysis |
+| `docs/dtc.md` | fault code (DTC) table: meanings, checks, codes seen here |
 | `docs/ha-dashboard.yaml` | Home Assistant dashboard view (sections; charts need apexcharts-card) |
 
 ## Build and flash
@@ -126,9 +127,10 @@ All controls are in the web UI group **Heater Control**.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).
 - **Read Fault Codes** / **Clear Fault Codes** (buttons): the error memory as the EasyStart's workshop
-  menu shows and deletes it. Clearing needs a SecurityAccess key that is not in this repo; register it
-  with `set_security_provider()` from a local config (see `docs/research.md` "DTC clear: security
-  provider"). Without it, clearing fails with a message; everything else works.
+  menu shows and deletes it (code list: [`docs/dtc.md`](docs/dtc.md)). Clearing needs a SecurityAccess
+  key that is not in this repo; register it with `set_security_provider()` from a local config (see
+  `docs/research.md` "DTC clear: security provider"). Without it, clearing fails with a message;
+  everything else works.
 
   Local, untracked overlay (e.g. `esphome/my-heater.yaml`, flash this instead of `hydronic-s3.yaml`):
 

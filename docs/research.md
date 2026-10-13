@@ -43,7 +43,9 @@
 - Sensors (connector XB4): water inlet NTC (BU, pins 5–6), water outlet NTC (RD, 9–10), flame sensor (BN, 7–8),
   glow plug (WH, 3–4), PCB temp sensor, air-pressure sensor (altitude, valid 598–1106 hPa).
 - Water NTC: 32.55 kΩ @0 °C, 10 kΩ @25, 5.33 kΩ @40, 2.49 kΩ @60, 1.26 kΩ @80, 677 Ω @100, 389 Ω @120, 183 Ω @150.
-- Flame sensor (PTC-like): 1000 Ω @0 °C, 1097 @25, 1385 @100, 1758 @200.
+- Flame sensor: PT1000 (1000 Ω @0 °C, 1097 @25, 1385 @100, 1758 @200; tested to 200 °C), pushed through the
+  blower housing into the combustion chamber flange — burner-base temperature, not EGT. Flame detection by its
+  rise; flame-out P000125–129, sensor faults P000120–122.
 - Overheat: outlet >125 °C SW (P000115), >130 °C HW (P000116); lockout after 10 overheats (P00011A).
 - Control: start MAX when cold, modulate MAX↔MIN holding **75 °C outlet**, pause at **85 °C**, restart MIN at **70 °C**.
 - Metering pump: EasyScan test 7 Hz × 60 s = 12.4 cm³ (D4E/D5E/D6L) → **~29.5 µl/stroke**.
@@ -87,6 +89,7 @@ flow control `30 08 14` (BS 8, STmin 20 ms). Example: `19 02 08` (ReadDTCInforma
 readable via `22` ReadDataByIdentifier — DIDs unknown, needs TX (safety review first).
 
 ## DTC meanings (OEM sources, web research 2026-10-10)
+Full table: [`dtc.md`](dtc.md).
 From Eberspächer "Repair Instructions Hydronic S3 Economy 12V CS / Commercial 24V CS"
 (https://files.chartindustries.com/Hydronic_S3_Service.pdf, covers D6L 24 V CS 25.2745.05.0000) and Navistar TSB
 IK1900301 (https://static.nhtsa.gov/odi/tsbs/2026/MC-11031193-0001.pdf):
@@ -307,10 +310,37 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
   (26.7–32.4); FD11-derived 29.3 µl. Tech data D6L: 5600/1300 W, 0.65/0.15 l/h, 37/5 W, 20.4–32 V.
 
 ### Water pump (Flowtronic 1400, 25.2435.99.2701; 24 V, max 35 W, 0.15 bar, 1400 l/h)
+- **Installed here instead:** Lowara (Xylem) D5 Vario (BLDC, speed set by its 5-step dial, no PWM input), fed from the heater's pump output through a
+  Schottky diode + DC/DC (see "Non-stock water pump" in the README). FEFF B21 measures the DC/DC input current.
 - Repair-manual DTCs: P000250/251 open/short, P000252 short to +Ub or transistor, P000253 blockage, P000254
   overcurrent shutdown, P000255 below minimum speed, P000256 dry run, P000257 overheating → pump reports status/speed
-  (smart pump). Pump power DID not yet found
-  (FD08 candidate: 20000 pause, ~23100 burn, ~24650 run-down).
+  (smart pump). Pump current: FEFF B21 (see "Output currents"); FD08 is the blower, not the pump.
+- Wiring (technical description 25.2696.90.0001.0D, 07.2023, harness diagram): heater socket **XB3 is 3-pin**, harness
+  W1 uses only pin 1 (BN) and pin 2 (VT); pump plug XB8/2 is 2-pin. Repair manual: **P0002a1 "Water pump – Control /
+  Diagnosis pin interruption"**; never logged here.
+- Older harness (repair instructions 25.2696.95.2682.0C, 09.2019, "Cable harness 24V CS", same drawing
+  25.2696.00.9602.0A): **XB3 pin 3 wired (0.75 VTRD) to pump pin 3, drawn as an open-collector transistor in the
+  pump** → pin 3 most likely a **combined control/diagnosis line** ("Control-/Diagnose-Pin"), as common for automotive
+  BLDC auxiliary pumps: PWM speed command from the control box, pump pulls the line low (open collector) to report
+  faults (P000253–256). Already 2-wire in the 09.2020
+  edition (0E, "Leitungsbaum 24V CS") and the 07.2023 technical description: the 3-wire pump was dropped 2019/2020.
+- The service tool offers a water pump power test (1–100 %): a pump power setpoint exists (3-wire pump: on pin 3;
+  2-wire: PWM on the supply or unused). In operation the supply looks constant: B21 0.73–0.82 A in all phases.
+- **Open:** does our control box still drive pin 3? Back-probe the empty chamber 3 (pump stays connected; unplugging
+  XB3 = P000250) vs. ground, scope: asleep / idle / heat / control pause / residual, and during the EasyScan pump
+  test at a few setpoints. PWM tracking the setpoint → could drive a PWM pump (e.g. D5 PWM motor) directly.
+  Also scope the **supply (VT) on the heater side, before the diode**: with a 2-wire pump the setpoint may be PWM on
+  the supply. Our diode + DC/DC input capacitance (peak rectifier, regulated output) would hide that completely —
+  B21 stays constant whatever the duty — so the constant current is no evidence against supply PWM.
+  Diode adapter sealed (10-12): next time the harness is open, or back-probe XB3 pins 2 + 3 at the heater / scope
+  with a current clamp on VT.
+- **Variable pump speed, worth it?** (assessment 10-12) Heater efficiency: ~nil — non-condensing; for a given
+  demand lower flow raises outlet and lowers return, mean exchanger temperature ≈ unchanged. Cycling: lower flow is
+  worse (outlet hits 85 °C off at a cooler loop → less thermal mass used → more starts, each costing glow energy,
+  purge loss, a fuel stroke, soot); below Pmin demand keep flow high. Real gains: pump power (33 W ≈ 330 Wh/night),
+  noise (slow in pause / at night), flow tracking burner power (full flow at high power, away from P000115/116),
+  measured flow via the PWM motor's tach + pump curve (real heat output, blockage / dry-run detection).
+  Constraint: never below minimum flow (cf. P000255/256 on stock pumps).
 
 ### Regulation observed (6 burns 22:19–23:15, loop throttled, no high load)
 Start fuel 70–73 µl/s (~39 % ≈ 2.2 kW) until outlet ≈75 °C; steps 67/64/61 at 75–77 °C; minimum 41 µl/s (1300 W)
@@ -632,3 +662,17 @@ resolution), a variable-speed fridge as a constant offset in the window:
 - Clock: our `10A` logged as sent (`16 AB 72 32 10 01` = Sun 18:42:50, counter 1; sync resend counter 2) — matches the
   EasyStart's encoding. No DID tracks the time (FD17 B3 is the operating-minute counter), so whether the heater uses
   it is not observable.
+
+## Long CAN run, controller loss mid-run (2026-10-12 20:03–22:10, EasyStart disconnected)
+- **No heater run-time limit**: `Heater Run` on (externally switched by a temperature controller) ≥ 2 h, state `05`
+  throughout; the heater does not cut off by itself. Run time lives in the control unit (EasyStart: up to 720 min).
+- **Controller loss** (OTA during the run, ~15 s silence): heater → run-down (state `03` + B1 bit 3, phase `1E`),
+  flags `0x04`; DTCs **P000307 + P000440**. No lock: a new S+ start 2 min later was accepted and ran normally.
+- **P000440 stays active** (`2F`) while the heater is awake without its CAN control unit: a clear is followed by
+  P000440 again within ~3 s (also during the S+ run; our UDS polling does not count as control unit). Clear only
+  after the heater has slept / been power-cycled.
+- Polling during our runs: "send failed" ~2/s. Cause: each command cycle (`054`–`057`, 200 ms) fills the MCP2515's
+  3 TX buffers; a diag request sent in the same loop pass found all busy, was taken for "no ack", and every
+  "bus back" restarted the sweep at DID 0 (head of the list ~2.5× too often, tail at half rate; nothing went stale).
+  Fix: one ordered TX queue for all frames; only an aborted unacked frame (`ERROR_FAILTX`) counts as bus down.
+- Pump current 1.27 A (33 W at the pump output) with the external DC/DC turned up; flow estimate 513 l/h.
