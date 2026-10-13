@@ -59,6 +59,7 @@ void HydronicS3::track_id_(uint32_t can_id, bool ext, bool rtr, const std::vecto
 
 void HydronicS3::scan_dids(uint16_t first, uint16_t last) { this->start_scan_(0x22, first, last); }
 void HydronicS3::scan_local_ids(uint8_t first, uint8_t last) { this->start_scan_(0x21, first, last); }
+void HydronicS3::scan_routines(uint16_t first, uint16_t last) { this->start_scan_(0x31, first, last); }
 
 void HydronicS3::start_scan_(uint8_t service, uint32_t first, uint32_t last) {
   if (this->sweep_)  // pre-empt a poll sweep (its pending answer is still awaited); polling resumes after the scan

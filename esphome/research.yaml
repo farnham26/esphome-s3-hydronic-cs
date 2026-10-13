@@ -109,6 +109,13 @@ button:
       sorting_group_id: group_debug
     on_press:
       - lambda: "id(heater).scan_dids((uint16_t) id(did_from).state, (uint16_t) id(did_to).state);"
+  # RoutineControl results (31 03 <id>) over the DID range numbers; needs session 10 03 first.
+  - platform: template
+    name: "Scan Routine Results"
+    web_server:
+      sorting_group_id: group_debug
+    on_press:
+      - lambda: "id(heater).scan_routines((uint16_t) id(did_from).state, (uint16_t) id(did_to).state);"
   # UDS identification DIDs (read-only); results in "Diag Response".
   - platform: template
     name: "Scan Identification DIDs"

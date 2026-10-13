@@ -94,6 +94,9 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
 - 10-13: `docs/dtc.md` (DTC table). Device = 97453a1.
 - 10-13 eve: scan-state fixes (`sweep_` flag; range scan past poll-list end), request pre-empts sweep,
   lost-NRC-during-single fix, silent-DID log line; OTA'd + verified. Public docs: plain-English names only.
+- 10-13/14: UDS service probe + `31 03` routine-result scan (`scan_routines()`, "Scan Routine Results").
+  Fix: a single request during a poll sweep was dropped by the heater (sent before the sweep's answer) → deferred
+  via `after_sweep_`, no sweep for 3 s after a single (stress 20/20 mid-sweep). OTA'd.
 - Pump plan (clamp on order; results → `docs/research.md` water pump):
   1. Clamp on VT, heater side of the diode (DC/DC input capacitance hides PWM): square wave = supply PWM, flat = none.
   2. Capture start / full burn / MIN / control pause / run-down / residual; duty tracking power = control.

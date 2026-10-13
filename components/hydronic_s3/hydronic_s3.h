@@ -166,6 +166,9 @@ class HydronicS3 : public Component {
   void scan_dids(uint16_t first, uint16_t last);
   /// Same for KWP2000-style ReadDataByLocalIdentifier (21 <id>), ids first..last.
   void scan_local_ids(uint8_t first, uint8_t last);
+  /// Same for RoutineControl requestRoutineResults (31 03 <id>), ids first..last: reports only,
+  /// never starts a routine. NRC 31 = no such routine; other NRCs are logged per id.
+  void scan_routines(uint16_t first, uint16_t last);
   /// Sends one UDS request given as hex ("19 04 00 02 52 FF"); the answer goes to the
   /// diag_response text sensor. Normal mode for 3 s via the listen-only hook.
   void send_uds_request(const std::string &hex);
@@ -275,6 +278,7 @@ class HydronicS3 : public Component {
   std::function<bool(bool)> listen_only_hook_;
   bool scan_active_{false};
   bool sweep_{false};  // the active scan is a poll sweep over sweep_dids_, not a range scan
+  std::function<void()> after_sweep_;  // a request deferred until the sweep's pending answer is in
   bool scan_awaiting_{false};
   uint32_t scan_next_{0};  // 32 bit: a scan up to FFFF must not wrap
   uint32_t scan_last_{0};

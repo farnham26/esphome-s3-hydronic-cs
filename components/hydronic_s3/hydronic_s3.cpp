@@ -87,6 +87,7 @@ static constexpr uint8_t ISOTP_PAD = 0xAA;
 static constexpr uint32_t DIAG_TIMEOUT_MS = 200;
 static constexpr uint32_t DIAG_PENDING_TIMEOUT_MS = 2000;  // after NRC 0x78 "response pending"
 static constexpr uint8_t NRC_RESPONSE_PENDING = 0x78;
+static constexpr uint8_t NRC_OUT_OF_RANGE = 0x31;
 static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 // Session (10 61) + SecurityAccess (27 65/66) + ClearDiagnosticInformation, as sniffed
 // from the EasyStart's workshop menu (docs/research.md "EasyStart workshop menu").
@@ -574,8 +575,13 @@ void HydronicS3::send_uds_request(const std::string &hex) {
     i += 2;
   }
   // Single frame only: up to 7 payload bytes. Pre-empts a poll sweep (the next interval restarts it).
+  // The heater drops a request sent before it has answered the sweep's: wait for that answer.
+  if (this->sweep_ && this->scan_awaiting_) {
+    this->after_sweep_ = [this, hex]() { this->send_uds_request(hex); };
+    return;
+  }
   if (this->sweep_)
-    this->scan_active_ = this->scan_awaiting_ = false;
+    this->scan_active_ = false;
   if (payload.empty() || payload.size() > 7 || this->scan_active_ || !this->set_listen_only_(false)) {
     ESP_LOGW(TAG, "UDS request '%s' not sent", hex.c_str());
     return;
@@ -827,7 +833,7 @@ void HydronicS3::loop() {
   if (this->clear_step_ != CLEAR_IDLE && static_cast<int32_t>(millis() - this->clear_deadline_ms_) >= 0)
     this->clear_abort_("timeout");
   if (this->poll_wanted_() && !this->scan_active_ && !this->tx_down_ && this->clear_step_ == CLEAR_IDLE &&
-      static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
+      this->single_until_ms_ == 0 && static_cast<int32_t>(millis() - this->poll_next_ms_) >= 0) {
     // Start a sweep over the list (reuses the scan state machine).
     this->poll_next_ms_ = millis() + this->poll_interval_ms_;
     if (this->idle_sweeps_ != 0)
@@ -845,6 +851,11 @@ void HydronicS3::loop() {
     this->single_until_ms_ = 0;
     this->diag_requested_ = false;
     this->update_mode_();
+  }
+  if (this->after_sweep_ && !(this->scan_active_ && this->scan_awaiting_)) {  // the sweep's answer is in
+    auto request = std::move(this->after_sweep_);
+    this->after_sweep_ = nullptr;
+    request();
   }
   if (!this->scan_active_)
     return;
@@ -883,6 +894,8 @@ void HydronicS3::loop() {
   std::vector<uint8_t> req;
   if (this->scan_service_ == 0x21)
     req = {0x02, 0x21, static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
+  else if (this->scan_service_ == 0x31)  // requestRoutineResults: reports only, never starts a routine
+    req = {0x04, 0x31, 0x03, static_cast<uint8_t>(id >> 8), static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
   else
     req = {0x03, 0x22, static_cast<uint8_t>(id >> 8), static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD,
            ISOTP_PAD};
@@ -945,6 +958,12 @@ void HydronicS3::clear_dtc() {
     this->publish_diag_("DTC clear failed: no security provider registered");
     return;
   }
+  if (this->sweep_ && this->scan_awaiting_) {  // see send_uds_request()
+    this->after_sweep_ = [this]() { this->clear_dtc(); };
+    return;
+  }
+  if (this->sweep_)
+    this->scan_active_ = false;
   if (this->clear_step_ != CLEAR_IDLE || this->scan_active_ || !this->set_listen_only_(false)) {
     ESP_LOGW(TAG, "DTC clear: busy, not starting");
     return;
@@ -1071,13 +1090,16 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
     this->clear_step_response_(payload);
     return;
   }
-  if ((payload.size() >= 3 && payload[0] == 0x62) || (payload.size() >= 2 && payload[0] == 0x61)) {
-    // Positive response: 62 <DID hi lo> data (22) or 61 <local id> data (21).
-    const size_t data_at = payload[0] == 0x62 ? 3 : 2;
+  if ((payload.size() >= 3 && payload[0] == 0x62) || (payload.size() >= 2 && payload[0] == 0x61) ||
+      (payload.size() >= 4 && payload[0] == 0x71)) {
+    // Positive response: 62 <DID hi lo> data (22), 61 <local id> data (21) or 71 <sub> <routine hi lo> data (31).
+    const size_t data_at = payload[0] == 0x62 ? 3 : payload[0] == 0x71 ? 4 : 2;
     std::string text;
     char buf[8];
     if (payload[0] == 0x62)
       snprintf(buf, sizeof(buf), "%02X%02X:", payload[1], payload[2]);
+    else if (payload[0] == 0x71)
+      snprintf(buf, sizeof(buf), "R%02X%02X:", payload[2], payload[3]);
     else
       snprintf(buf, sizeof(buf), "L%02X:", payload[1]);
     text = buf;
@@ -1113,6 +1135,9 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
     if (payload[1] == this->scan_service_) {
       this->scan_negative_++;
       this->nrc_count_[payload[2]]++;
+      // The identifier exists; capped per NRC (a lost session answers 7F to every request).
+      if (payload[2] != NRC_OUT_OF_RANGE && !this->sweep_ && this->nrc_count_[payload[2]] <= 32)
+        ESP_LOGI(TAG, "scan %02X %04X: NRC %02X", this->scan_service_, (unsigned) (this->scan_next_ - 1), payload[2]);
     }
     this->scan_answered_();
     return;
