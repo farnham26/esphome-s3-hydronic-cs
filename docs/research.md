@@ -58,6 +58,8 @@
 ## Sources
 - https://github.com/TrooperDuper/espar-airtronic-esphome (protocol-reference.md)
 - https://files.chartindustries.com/Hydronic_S3_Service.pdf
+- https://www.butlertechnik.com/downloads/cms/eberspacher-espar-hydronic-s3-cs-24v-technical-installation-manual.pdf
+  (Technical description Hydronic S3 Commercial D5L/D6L 24 V CS, 25.2696.90.0001.0D, 07.2023)
 - https://eberspacher-russia.ru/repair-manual-hydronic-s3-25.2696.95.2682.0E-0920-ru.pdf
 - https://mygenerator.com.au/assets/files/Hydronic_S3_tech_manual.pdf
 - https://mygenerator.com.au/assets/files/Eberspacher_Hydronic_Product_Brochure.pdf
