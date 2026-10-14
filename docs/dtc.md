@@ -3,14 +3,15 @@
 Summarised from the Eberspächer repair instructions *Hydronic S3 CS* 25.2696.95.2682.0E (09.2020, German) and
 the public *Repair Instructions Hydronic S3 Economy 12V CS / Commercial 24V CS*
 (https://files.chartindustries.com/Hydronic_S3_Service.pdf). Wording is ours and shortened; follow the OEM document
-for repairs. "Seen" = observed on this installation (see `docs/research.md`).
+for repairs. "Seen" = observed on this installation (see [`research.md`](research.md)). Protocol: [`protocol.md`](protocol.md).
 
 ## Reading them
 
 - **Read Fault Codes** (button) or automatically when the `2C4` fault flags rise: UDS `19 02 08` on `0x7A0`
   (ReadDTCInformation, status mask "confirmed"), reply `59 02 <mask> {DTC hi mid lo, status}*`.
   Shown in "Heater Fault Codes" and in red on the LCD.
-- The control unit stores up to 10 faults. Clearing needs SecurityAccess (see README).
+- The control unit stores up to 10 faults. Clearing needs SecurityAccess (see the README,
+  [Controlling the heater](../README.md#controlling-the-heater)).
 - Status byte (ISO 14229): bit 0 failing now, 1 failed this cycle, 2 pending, 3 confirmed, 4 not tested since
   clear, 5 failed since clear, 6 not tested this cycle, 7 warning lamp. Typical: `2F` active, `28` stored (not
   failing now), `68`/`6C` stored, not yet tested after wake.
@@ -49,7 +50,7 @@ starts (P00012B) or repeated overheating (P00011A). The OEM documents disagree o
 | P000220 / 221 / 222 | Blower motor open / short / short to +Ub or transistor | Contacts, dirt, corrosion, blocked wheel | 1 | P000222 (`28`, stored) |
 | P000223 / 224 | Blower blocked / overcurrent | Free the wheel; else blower | 1 | |
 | P000250 / 251 | Water pump open / short | Harness XB3 – XB8/2, pump | 5 | P000250 (pump unplugged, or bleeder on the wrong side) |
-| P000252 | Water pump short to +Ub or transistor fault | Unplug pump: P000250 → pump defective | 5 | P000252 (start holds with the non-stock pump, see README) |
+| P000252 | Water pump short to +Ub or transistor fault | Unplug pump: P000250 → pump defective | 5 | P000252 (start holds with the non-stock pump, see [README](../README.md#non-stock-water-pump-start-holds-p000252--p000250)) |
 | P000253 | Water pump blocked | Kinked hoses | 5 | |
 | P000254 | Water pump overcurrent | Dirty pump / circuit | 5 | |
 | P000255 | Water pump below minimum speed | Dirty pump / circuit | 5 | |

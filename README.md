@@ -51,31 +51,52 @@ safety-relevant behaviour of a combustion heater and this software is not intend
 
 This is a working research project, not a product. Read-out is solid; start/stop works with the
 EasyStart **disconnected** (two controllers on one heater are not supported by the heater). What is
-still open is listed in [`docs/research.md`](docs/research.md).
+still open is listed in [`docs/protocol.md`](docs/protocol.md#open).
 
 > **Safety.** This controls a combustion heater. Keep an independent way to cut its power, never
 > leave experiments unattended, and expect fault codes while experimenting. Use at your own risk.
 
 ## Hardware
 
-| Part | Notes |
-|---|---|
-| M5Stack Fire v2.7 | ESP32, LCD, battery (the research rig). For integration, any ESP32 with a CAN transceiver on TWAI works, see `esphome/example-twai.yaml` |
-| M5Stack COMMU | MCP2515, 8 MHz crystal, CS GPIO12, INT GPIO15 |
-| CAN tap | heater CAN H/L, 500 kbit/s, 11-bit IDs (EasyStart connector or diagnostic plug) |
-| Supply | 24 V vehicle → buck converter with ≥ 36 V input rating + TVS → 5 V |
-
-### Test setup
-
-The [M5Stack Fire v2.7](https://docs.m5stack.com/en/core/fire_v2.7) with the
-[COMMU module](https://docs.m5stack.com/en/module/commu) stacked underneath,
-tapped into the heater CAN at the EasyStart connector. The EasyStart is disconnected for control tests.
+| Part | Notes | Links |
+|---|---|---|
+| M5Stack Fire v2.7 | ESP32 (4 MB PSRAM, unused), 320×240 LCD, M5GO battery base. The research rig; for an integration any ESP32 with a CAN transceiver on its own controller (TWAI) works, see `esphome/example-twai.yaml` | [docs](https://docs.m5stack.com/en/core/fire_v2.7), [shop](https://shop.m5stack.com/products/m5stack-fire-iot-development-kit-psram-v2-7) |
+| M5Stack COMMU | MCP2515 CAN controller + transceiver, 8 MHz crystal, stacks under the Fire (M-Bus) | [docs](https://docs.m5stack.com/en/module/commu), [shop](https://shop.m5stack.com/products/commu-module), [schematic](https://static-cdn.m5stack.com/resource/docs/products/module/commu/commu_sch_01.webp) |
+| CAN tap | heater CAN H/L (+ GND), 500 kbit/s, 11-bit IDs, at the EasyStart connector or the diagnostic plug | |
+| Supply | 24 V vehicle → buck converter rated ≥ 36 V input + TVS diode → 5 V | |
 
 <p align="center">
   <a href="https://docs.m5stack.com/en/core/fire_v2.7"><img src="https://static-cdn.m5stack.com/resource/docs/products/core/fire_v2.7/fire_v2.6_01.webp" alt="M5Stack Fire v2.7" height="200"></a>
   <a href="https://docs.m5stack.com/en/module/commu"><img src="https://static-cdn.m5stack.com/resource/docs/products/module/commu/commu_01.webp" alt="M5Stack COMMU" height="200"></a><br>
   <em>M5Stack Fire v2.7 and COMMU (images: M5Stack)</em>
 </p>
+
+### Wiring
+
+```
+24 V vehicle ──┬──────────────────────────────── Hydronic S3 (power, own fuse)
+               └── buck ≥ 36 V in + TVS ── 5 V ── M5Stack Fire
+                                                  │ M-Bus (stacked)
+                                                  COMMU (MCP2515, 8 MHz)
+                                                  │ CAN H, CAN L, GND
+Hydronic S3 CAN ── EasyStart connector (EasyStart unplugged for control) or diagnostic plug
+```
+
+| Fire GPIO | Function |
+|---|---|
+| 18 / 23 / 19 | SPI CLK / MOSI / MISO, on SPI3 (IOMUX), shared with the LCD (CS 14, DC 27) and the SD slot (CS 4, held high) |
+| 12 | COMMU CAN CS (strapping pin, boots fine) |
+| 15 | COMMU CAN INT |
+
+- The heater bus is already terminated; tap it mid-bus without adding a second 120 Ω (check the COMMU's
+  termination setting).
+- CAN H/L wire colours at the EasyStart connector are not labelled; if the bus stays silent, swap them.
+- Leave the Fire's SD slot empty: a card answers SPI traffic and corrupts MCP2515 reads.
+
+### Test setup
+
+The Fire with the COMMU stacked underneath, tapped into the heater CAN at the EasyStart connector of a
+Hydronic S3 D6L Commercial 24 V in a van. The EasyStart is disconnected for control tests.
 
 Hard-won details (see `CLAUDE.md`): the shared SPI bus must run on SPI3 (IOMUX pins) for clean
 8 MHz MCP2515 reads; leave the SD slot empty; the CAN reader runs in IRAM so flash writes and the
@@ -93,7 +114,9 @@ display never cost frames.
 | `esphome/timers.yaml`, `esphome/timers/` | optional heater timers (three slots, SNTP clock) |
 | `esphome/hydronic-s3-sdl.yaml` | UI preview on the PC (SDL), demo values |
 | `esphome/example-twai.yaml` | minimal integration on the ESP32's own CAN controller (TWAI), no MCP2515 |
-| `docs/research.md` | protocol research: frames, DIDs, phases, wake-up, start hold analysis |
+| `docs/protocol.md` | protocol reference: frames, commands, configuration burst, phases, UDS, DIDs |
+| `docs/research.md` | lab journal: dated experiments and raw captures behind the reference |
+| `docs/can-sniffing.md` | how to capture and decode the bus with the research tools |
 | `docs/dtc.md` | fault code (DTC) table: meanings, checks, codes seen here |
 | `docs/ha-dashboard.yaml` | Home Assistant dashboard view (sections; charts need apexcharts-card) |
 
@@ -109,6 +132,73 @@ cd esphome
 ```
 
 UI preview without hardware: `../work/venv/bin/esphome run hydronic-s3-sdl.yaml`.
+
+## Configuration
+
+Minimal `hydronic_s3` setup on any ESP32 CAN bus (complete example: `esphome/example-twai.yaml`;
+full device: `esphome/hydronic-s3.yaml`). All entities are optional.
+
+```yaml
+external_components:
+  - source: github://farnham26/esphome-s3-hydronic-cs
+    components: [hydronic_s3]
+
+canbus:
+  - platform: esp32_can          # or mcp2515 (the Fire uses the mcp2515_irq fork)
+    id: heater_can
+    tx_pin: GPIO4                # your transceiver pins
+    rx_pin: GPIO5
+    can_id: 0x7A0                # unused: the component sends with explicit IDs
+    bit_rate: 500KBPS
+
+hydronic_s3:
+  id: heater
+  canbus_id: heater_can
+  time_id: sntp_time             # optional: send our clock to the heater (needs a time: source)
+  research: false                # optional: ID table, change log, wake trace in the log
+  on_event:                      # optional: transitions (what, from, to), see "Controlling the heater"
+    - lambda: 'ESP_LOGI("heater", "%s: %d -> %d", what.c_str(), from, to);'
+
+esphome:
+  on_boot:
+    - priority: -100
+      then:
+        # Poll the live values every 5 s; stops by itself while the heater sleeps.
+        - lambda: "id(heater).start_polling(hydronic_s3::HydronicS3::sensor_dids(), 5000);"
+
+sensor:
+  - platform: hydronic_s3
+    outlet_temperature: {name: "Outlet Temperature"}       # status frame, 100 ms
+    inlet_temperature: {name: "Inlet Temperature"}          # the rest: polled
+    # flame_sensor_temperature, supply_voltage, blower_speed, glow_plug_power, metering_pump_rate,
+    # water_pump_current, fuel_pump_current, water_pump_power, operating_phase, start_step,
+    # combustion_state, fuel_consumption, heating_power, water_flow, fuel_total, control_unit_temperature,
+    # hours_total, hours_power_0_25, hours_power_25_50, hours_power_50_75, hours_power_75_100,
+    # hours_pause, hours_altitude, state_code
+
+binary_sensor:
+  - platform: hydronic_s3
+    connected: {name: "Heater Connected"}
+    # flame, vehicle_fan, request, on_request
+
+text_sensor:
+  - platform: hydronic_s3
+    state: {name: "Heater State"}
+    # fault, fault_codes, event, operating_phase_text, combustion_text, request_source,
+    # hardware_version, software_version, part_number, serial_number, diag_response
+
+switch:
+  - platform: template
+    name: "Heater Run"
+    lambda: "return id(heater).command_on();"
+    turn_on_action:
+      - lambda: "id(heater).set_command(true);"
+    turn_off_action:
+      - lambda: "id(heater).set_command(false);"
+```
+
+Mode (`set_command_mode(MODE_HEAT | MODE_FAN | MODE_RESIDUAL)`) and watchdog (`set_command_lease(ms)`):
+see `esphome/example-twai.yaml`.
 
 ## Controlling the heater
 
@@ -149,9 +239,8 @@ All controls are in the web UI group **Heater Control**.
   P000307 "CAN communication error" if its controller falls silent).
 - **Read Fault Codes** / **Clear Fault Codes** (buttons): the error memory as the EasyStart's workshop
   menu shows and deletes it (code list: [`docs/dtc.md`](docs/dtc.md)). Clearing needs a SecurityAccess
-  key that is not in this repo; register it with `set_security_provider()` from a local config (see
-  `docs/research.md` "DTC clear: security provider"). Without it, clearing fails with a message;
-  everything else works.
+  key that is not in this repo; register it with `set_security_provider()` from a local config (below).
+  Without it, clearing fails with a message; everything else works.
 
   Local, untracked overlay (e.g. `esphome/my-heater.yaml`, flash this instead of `hydronic-s3.yaml`):
 
@@ -221,13 +310,12 @@ This is one installation and a limited number of starts; check your own fault me
 
 - The heater broadcasts status (`2C4`: state, outlet temperature, fault flags; `625`, `2C5`, `2C6`).
   Everything else comes from UDS on `0x7A0` → `0x73C`: `22 FDxx` live data, `19 02/06` fault memory.
-- The EasyStart wakes the sleeping bus by sending its keep-alive (`60D`) until the heater acknowledges;
-  it commands with `054` (`01 01` on, `00 00` off) every 200 ms. The run time is kept in the
-  EasyStart, not in the heater.
-- Polling keeps the heater awake (a ~5 s diagnostic hold), so the component polls only while the
-  heater is active and lets it sleep otherwise.
+- The controller wakes the sleeping bus with its keep-alive (`60D`) and commands with `054` every 200 ms;
+  the run time is kept in the controller, not in the heater. The component takes that role.
+- Polling keeps the heater awake, so the component polls only while the heater is active.
 
-Details, raw captures and open questions: [`docs/research.md`](docs/research.md).
+Reference: [`docs/protocol.md`](docs/protocol.md); evidence and raw captures: [`docs/research.md`](docs/research.md);
+capturing it yourself: [`docs/can-sniffing.md`](docs/can-sniffing.md).
 
 ## License
 

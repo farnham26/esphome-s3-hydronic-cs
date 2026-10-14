@@ -38,7 +38,7 @@ struct IdState {
   float period_ms{0};       // smoothed inter-frame interval, at processing time (approximate)
 };
 
-/// Values read by UDS ReadDataByIdentifier (see docs/research.md "DID correlation").
+/// Values read by UDS ReadDataByIdentifier (see docs/protocol.md "Live and stored data").
 /// (?) = plausible, not confirmed.
 enum DidSensor : uint8_t {
   DID_INLET_TEMPERATURE,      // FD01 w2, v/100 - 50 °C
@@ -204,7 +204,7 @@ class HydronicS3 : public Component {
   /// Supplies the SecurityAccess key for a given seed, for clear_dtc() only. Returns
   /// false to refuse (unknown seed, no key available). The heater-specific unlock
   /// material is not in this repo: register this from a local config (e.g. an on_boot
-  /// lambda, see docs/research.md "DTC clear: security provider"); without one,
+  /// lambda, see README "Controlling the heater"); without one,
   /// clear_dtc() fails with a clear message and nothing else is affected.
   using SecurityProvider = std::function<bool(const uint8_t seed[4], uint8_t key_out[4])>;
   void set_security_provider(SecurityProvider provider) { this->security_provider_ = std::move(provider); }

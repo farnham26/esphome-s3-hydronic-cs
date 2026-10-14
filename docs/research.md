@@ -1,25 +1,19 @@
 # Hydronic S3 — protocol research (2026-10-10)
 
-## Summary
-- No public Eberspächer CAN spec / DBC / leaked OEM doc found (searched EN/DE/RU, GitHub, Scribd, van forums).
-- Heater interfaces: **CAN + S+ (switch-on)**. Compatible with EasyStart CAN control units (Pro, Remote+, Web).
-- Two candidate protocols on the bus:
-  1. **Proprietary EasyStart CAN**, 11-bit IDs, 500 kbit/s — decoded for Airtronic S3 (air heater) by TrooperDuper.
-  2. **SAE J1939** — standard heater PGNs exist; Commercial line is used in trucks (Navistar lists SA 69 "Auxiliary Heater").
-  First capture decides which (or both).
-- Closed-source proof that temps are on the bus: UndermountAC "Espar CANbus Interface Module to WiFi"
-  (HS3 etc.) reads temperatures, hour meter, faults; does on/off, schedule, altitude adjustment.
+Lab journal: dated experiments, raw captures and how each decode was reached. The current decode is in
+[`protocol.md`](protocol.md), the capture method in [`can-sniffing.md`](can-sniffing.md), fault codes in
+[`dtc.md`](dtc.md). Entries are kept as observed; where a later entry corrected an earlier one, the earlier one
+points to it.
 
-## J1939 (if present)
-- **PGN 65133 (0xFE6D) Heater Information (HTR)**: SPN 1687 Aux Heater Output Coolant Temp, 1688 Input Air Temp,
-  1689 Output Power Percent, 1677 Mode, 1676 Water Pump Status, 1678 Cab Ventilation, 1679 Engine Heating Zone,
-  1680 Cab Heating Zone, 6821 ADR installation. Expected ID `0x18FE6D45` (prio 6, SA 69).
-- Requests (likely in CM1, PGN 57344 — unverified): SPN 1683 Mode Request, 1684 Coolant Pump Request,
-  1685/1686 Engine/Cab Zone Heating Request, 1690 Max Output Power.
-- Bit layouts are in SAE J1939DA (paid). Verify against capture, don't trust memory.
+## Summary
+- No public Eberspächer CAN spec / DBC found (searched EN/DE/RU, GitHub, Scribd, van forums).
+- Heater interfaces: CAN + S+ (wired switch-on). The bus carries the proprietary EasyStart protocol (11-bit,
+  500 kbit/s), as decoded for the Airtronic S3 by TrooperDuper; no J1939 traffic, although J1939 heater PGNs exist
+  for the Commercial line in trucks.
+- Diagnostics: UDS on `7A0`/`73C`.
 
 ## Airtronic S3 EasyStart CAN map (TrooperDuper, Airtronic S3 B2L 12 V only)
-500 kbit/s, 11-bit, little-endian.
+The starting point; the Hydronic map is in [`protocol.md`](protocol.md). 500 kbit/s, 11-bit, little-endian.
 
 | ID | Dir | Rate | Content |
 |---|---|---|---|
@@ -46,14 +40,15 @@
 - Flame sensor: PT1000 (1000 Ω @0 °C, 1097 @25, 1385 @100, 1758 @200; tested to 200 °C), pushed through the
   blower housing into the combustion chamber flange — burner-base temperature, not EGT. Flame detection by its
   rise; flame-out P000125–129, sensor faults P000120–122.
-- Overheat: outlet >125 °C SW (P000115), >130 °C HW (P000116); lockout after 10 overheats (P00011A).
+- Overheat: outlet >125 °C SW (P000115), >130 °C HW (P000116); lockout after repeated overheats (P00011A; 3 or 10,
+  the documents differ).
 - Control: start MAX when cold, modulate MAX↔MIN holding **75 °C outlet**, pause at **85 °C**, restart MIN at **70 °C**.
 - Metering pump: EasyScan test 7 Hz × 60 s = 12.4 cm³ (D4E/D5E/D6L) → **~29.5 µl/stroke**.
   D6L 0.15–0.65 l/h → ~1.4–6.1 Hz (estimate).
 - D6L: 1.3–5.6 kW heat, 5–37 W electrical, start ~135 W, 20.4–32 V.
 - CAN harness parts: 120 Ω terminator, 9.2 kΩ "stub line" resistor, mating connector with terminator (XS6/1),
   EasyScan connector XB6/1. CAN pair colours BU/RD and BU/BK (H/L not labelled — verify).
-- CAN faults: P000307/P00030A comm error, P000342 too many CAN components (ADR: only one control unit), P000A00 EasyFan comm.
+- Fault codes: [`dtc.md`](dtc.md).
 
 ## Sources
 - https://github.com/TrooperDuper/espar-airtronic-esphome (protocol-reference.md)
@@ -83,36 +78,20 @@ EasyStart protocol, 11-bit, 500 kbit/s; **no 29-bit / J1939 traffic seen**. IDs 
 | `625` B1 | `10` while awake (also with S+ off after power-up), `00` before sleep | revised 10-11 |
 
 Not in cyclic traffic: power level, pump rate, inlet temp, glow plug, flame (glow/ignition/restart from
-pause change no byte). S+ (switch input) status bit: not identified yet (test was confounded).
+pause change no byte). No S+ (switch input) status bit exists (see "S+ and CAN together").
 
 **Diagnostics: UDS (ISO 14229) over ISO-TP (ISO 15765-2)**, tester `0x7A0` → heater `0x73C`, padding `AA`,
 flow control `30 08 14` (BS 8, STmin 20 ms). Example: `19 02 08` (ReadDTCInformation by status mask) →
-`59 02 08 | 00 02 52 2C | 00 02 22 28` = P000252 (status 2C), P000222 (status 28). Live values should be
-readable via `22` ReadDataByIdentifier — DIDs unknown, needs TX (safety review first).
-
-## DTC meanings (OEM sources, web research 2026-10-10)
-Full table: [`dtc.md`](dtc.md).
-From Eberspächer "Repair Instructions Hydronic S3 Economy 12V CS / Commercial 24V CS"
-(https://files.chartindustries.com/Hydronic_S3_Service.pdf, covers D6L 24 V CS 25.2745.05.0000) and Navistar TSB
-IK1900301 (https://static.nhtsa.gov/odi/tsbs/2026/MC-11031193-0001.pdf):
-- **P000222** = combustion-air blower motor: short circuit to +Ub or transistor error.
-- **P000252** = water pump: short circuit to +Ub or transistor error.
-- Scheme P000 + group + index: 20x metering pump, 21x glow plug, 22x blower (0 open, 1 short, 2 short +Ub,
-  3 blocked, 4 overcurrent), 25x water pump (… 5 below min speed, 6 dry running, 7 overheating), 12x flame/start,
-  3xx control box / voltage / CAN (P000342 "too many CAN components"). Control box stores up to 10 faults.
-- No public source for 0x7A0/0x73C or UDS DIDs. No evidence the S3 emits J1939 HTR (PGN 65133).
-- P000342 implies a third-party controller must replace the EasyStart, not join as an extra node.
+`59 02 08 | 00 02 52 2C | 00 02 22 28` = P000252 (status 2C), P000222 (status 28).
 
 ## S+ start behaviour (2026-10-10 evening, EasyStart idle/off, tempcontrol relay on S+)
 - S+ on wakes the bus: heater boot frame (`2C4` state `00`, B4–B5 `FE FF`), ~0.25 s later state `03`,
-  **`625` B1 `00 → 10`** (switch-on request seen). `625` B1 drops to `00` within ~0.6 s of S+ off.
+  `625` B1 `00 → 10` (later shown to mean "awake", not the request: see "Power-up wake"). `625` B1 drops to `00` within ~0.6 s of S+ off.
 - Failed starts (3 of 4 attempts, warm and cold): **`2C4` B2 = `0x40` exactly 1.7 s after the request**, heater
   stays idle (`03`), no ignition, for minutes. Cleared together with the request. EasyStart `054` = `00 00`
   (off) throughout. One OFF/ON toggle once led to a start, once not — matches tempcontrol's retry habit.
 - On the Hydronic `0x40` is therefore "start held/refused", not the Airtronic overtemperature code.
-- Open: cause of the hold. User reports a DTC in the error memory after failed starts → read it (passive decode
-  on `0x73C` is in place: "Heater Fault Codes"). Hypothesis to test: conflict between S+ and the EasyStart's
-  active "off" command.
+- Cause found later: the non-stock pump's DC/DC converter (see "Start hold" below and the README).
 
 ### Root-cause lead: water pump fault P000252 (21:27–21:29, own UDS reads via "Read Fault Codes")
 - Read 0.1 s after wake (before self-test): `P000252 (6C), P000222 (68)` — 0x40 "test not completed this cycle".
@@ -211,20 +190,7 @@ DTC extended data (19 06 00 02 52 FF, 22:00:49):
 
 ## DID correlation, regulation → burner stop → run-down → pause (2026-10-10 22:19–22:26)
 Poll FEFF + FD00..FD44 every 5 s, `2C4` state 05 throughout; burner stopped ~22:21:45 (outlet peak 83 °C).
-Decodes (C = confirmed against CAN outlet / phase timing, ? = candidate):
-
-| DID | Decode | Observed |
-|---|---|---|
-| FD01 | 3× u16 BE, °C = v/100 − 50: [flame/exhaust sensor?, inlet (C), outlet (C)] | outlet = `2C4` ±0.1; inlet ~3 K below while burning, = outlet in pause; w1 133 °C burning → 71 °C |
-| FD10 B1 | phase (C): 0x14 burn, 0x1F run-down (~90 s), 0x28 pause | B5 sub-phase, B6–7 timer 0.01 s (0x1B59 when idle) |
-| FD09 | blower rpm? | ~2000 burn, 2900 run-down, 0 pause |
-| FD04 | supply V ×0.1 (C: 26.0 vs. 26.14 V multimeter) | 26.0/26.1 V, 25.1 V in run-down |
-| FD0A, FD0C | glow plug? | non-zero only in run-down (0x0351, 0x34) |
-| FD0D | metering pump ×0.1 Hz? | 0x0E burn → 0; earlier 0x11–0x17 |
-| FD11 | B1 0x29 → 00 at stop; B6–9 counter, counts only while burning | |
-| FD17 | 7× u32 BE counters; d1 total minutes (C, +1/min, 108856); d2 burn-only; d6 pause-only | |
-| FD08 | ? | ~23100 burn, ~24650 run-down, 20000 pause |
-| FD0F | ? | burn `01 03 7531 753F 81E1 8194`, else `00 01 75xx 753F 7FFC 7FFC` |
+Decodes from this and the following runs: [`protocol.md`](protocol.md#live-and-stored-data-22).
 
 Raw (every 3rd cycle):
 ```
@@ -267,7 +233,7 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11 FD17
 - 22:29:15 FD01 w1 rises 66→141 °C, FD0F B0 00→01 (flame).
 - 22:29:55 FD10 0x14; FD0A/FD0C → 0; FD0D 0x16→0x0E; FD11 B1 0x40→0x29 (FD11 B1 / FD0D ≈ 2.9 throughout).
 Now confirmed: FD0A/FD0C glow plug, FD04 supply V, FD0D metering pump ×0.1 Hz, FD01 w1 flame sensor, FD0F B0 flame.
-Water pump: no DID identified yet.
+(Water pump current: FEFF B21, found 10-11.)
 ```
 t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
 22:28:14 None 2DBE2F582F58 0104 4E20 0000 0000 00 00 00017531753F7FFC7FFC 01280001F5001B59 00000000012F0CCCEAFA
@@ -346,8 +312,7 @@ t        out   FD01 FD04 FD08 FD09 FD0A FD0C FD0D FD0F FD10 FD11
 
 ### Regulation observed (6 burns 22:19–23:15, loop throttled, no high load)
 Start fuel 70–73 µl/s (~39 % ≈ 2.2 kW) until outlet ≈75 °C; steps 67/64/61 at 75–77 °C; minimum 41 µl/s (1300 W)
-from ≈77 °C; pause at ≈83 °C; restart at ≈70.5 °C. Never above 40 % → upper regulation unseen. FD33
-(`02 46 64 47 5F 48 5A 49 50 4A 46 4B 3C 4C 00` = pairs 70/100 … 76/0?) does not match this as outlet→% curve; open.
+from ≈77 °C; pause at ≈83 °C; restart at ≈70.5 °C. Never above 40 % → upper regulation unseen.
 (Full power seen later, 23:29 below.)
 
 ### Identification (text sensors)
@@ -369,11 +334,11 @@ Candidate layout after status: record 01, occurrence count (0x69 = 105 / 6), ope
 - Full load: FD09 0x180A = 6154 (blower rpm, C: range 500–11000; ~2000 at min), FD08 ≈ 29950 (open), FD35 rising
   11300→11730 (falls in pause: temperature-like, candidate control unit / heat exchanger), FD0F w3 0x83F5.
 - ΔT outlet−inlet ≈ 20 K at 5.55 kW → water flow ≈ 240–280 l/h (below manual minimum 300 l/h).
-- **Regulation (C, FD33 = outlet °C → % pairs 70/100 71/95 72/90 73/80 74/70 75/60 76/0, min 1300 W):** full power
+- **Regulation:** full power
   below 70 °C; 159 @70.4, 141 @71.3, 123 @72.0, 106 @74.4, 76 @75.2, 47 @75.7, 41 (min) @76.2 °C. Intermediate
   values below the table (controller dynamics). Control pause at ≈83 °C, restart ≈70.5 °C.
 - Phases FD10 B1: 00 off, 0C start, 14 burn, 1E run-down after switch-off, 1F run-down to control pause, 28 pause.
-  FD10 B0 01→00 at switch-off (request flag?).
+  FD10 B0 01→00 at switch-off (request flag, confirmed 10-11).
 - Glow plug after every flame-off (run-down 0x1E/0x1F): ~89→74 W (FD0C 0x36→0x2D) for ~45 s; 0 while burning.
 - Counters: FD1E w2 = starts (+1 per start; 3416), FD06 = +1 at every start and every burner stop.
 
@@ -402,15 +367,16 @@ Wake trace (first frames after silence, Fire listen-only until `2C4`):
   pump 2.4 Hz, 0.25 l/h) → `14` burn at +2 min (glow off). S+ starts used `0C`.
 - **Run duration is not on the bus**: `054`–`057` constant `01 01 …` for 10 min, then `054 00 00` exactly at
   10:00.0. Timer is in the EasyStart. Config burst `05C`–`10A` (4× at power-up only, unchanged at the start):
-  `05C`/`05F` `1E 00 1E 00` = 30 (EasyStart default heating time 30 min?), no `0A`. Open: heater-side max run
-  time (hold `054` on > 30 min with the EasyStart disconnected).
+  `05C`/`05F` `1E 00 1E 00` = 30 (EasyStart default heating time 30 min?), no `0A`. Heater-side run-time limit:
+  none (≥ 2 h, 10-12).
 - Switch-off: `054 → 00 00`, `2C4` `05 → 03` with B1 `08` (run-down) at once, flame off, afterglow ~90 W,
   phase `1E`; run-down ends after 95 s (`2C4` B1 → `00`, phase `00`).
 
 ## Without the EasyStart (2026-10-11 ~10:00, EasyStart disconnected, bus unterminated: REC/TEC 0)
 - Heater alone sends `625`, `2C4`, `2C5`, `2C6` only → `60D`, `054`–`057`, `065`, `05C`–`10A` are the EasyStart's.
 - **Someone must ack**: with the Fire listen-only the heater retried its first `625` forever (~3800 fps), never
-  reached `2C4`. Component now acks (normal mode) whenever no EasyStart was seen for 60 s.
+  reached `2C4`. Component: acks while the bus is awake and no EasyStart was seen for 60 s (refined 14:39, see
+  "Own command").
 - Our `60D`/`054` wake it; DTC read: no P000342 → it accepts us as the only controller.
 
 ## Start hold = P000252 detection (2026-10-11)
@@ -424,7 +390,7 @@ Wake trace (first frames after silence, Fire listen-only until `2C4`):
   not count. Freeze-frame temps 70.3/70.8/64.7 °C (10-10: 40.8/40.9/38.6 °C) → not temperature.
   Start/stop counter 0x1D3C → 0x1D57. `19 04` (snapshot): NRC 12.
 - Common to all holds (incl. 10-10 S+ holds with the EasyStart sending `054 00 00`): an unexpected `054` while the
-  heater starts. Next: our start with the EasyStart sequence (off until state 03, `065` every 3 s).
+  heater starts (ruled out by the series below).
 - Hold clears with the request (S+ off / `054` off); phase `C8` = hold.
 
 ## Start hold: alternating S+ / CAN series (2026-10-11 10:44–10:51)
@@ -470,7 +436,7 @@ state 05 (glow only, no fuel). CAN = our command (EasyStart sequence, config bur
 - **FD35 = control unit temperature (?)**, FD01 format v/100 − 50: 40 °C idle, +6 K within 5 s of glow plug on
   (driver losses), 47 °C at minimum burn, 63–67 °C at full load (10-10).
 - Regulation: EasyStart run 09:3x (cold water): 0.644 l/h up to 69 °C, 72.5 °C → 0.443, 74.5 → 0.230, ≥ 75 °C
-  minimum 0.148, no pause even at 76.9 °C → dynamic (lag/trend), not the static FD33 curve. CAN start at 70.6 °C
+  minimum 0.148, no pause even at 76.9 °C → dynamic (lag/trend), not a static outlet→power curve. CAN start at 70.6 °C
   rising → minimum: consistent, no sign of a CAN power cap (`055`/`056` `10 27` identical with the EasyStart).
 
 ## Pump line fix, step 1 (2026-10-11 ~11:40): Schottky diode, bleeder on the pump side
@@ -484,8 +450,7 @@ EasyStart reconnected. EasyStart start: no hold. S+ series (EasyStart present): 
 1.2 kΩ from the diode anode (heater pump output) to GND; diode MBR3060PT; no series resistor/NTC; EasyStart present.
 - Power-up clean; S+ start (aborted at 4 s): no hold; S+ start + 5 min burn (flame +51 s, 3.2 kW): no hold.
 - DTC memory after: P000252 still 115, P000250 still 2 (status 68, not active), **no overcurrent / 25x codes**.
-- Too few starts for a rate yet; next: S+ trials (≤ 5 aborts, then a warm-up run) and a CAN series without the
-  EasyStart.
+- Verified 13:59 (below).
 
 ## EasyStart workshop menu, sniffed (2026-10-11 ~13:48–13:51, Fire listen-only, our polling off)
 | Menu item | On the bus |
@@ -510,22 +475,7 @@ cryptographic security — anyone sniffing the bus or running the EasyStart menu
 bytes — just not spread in the repo text). `HydronicS3::clear_dtc()` asks
 `HydronicS3::set_security_provider()` for the key given the seed; without one registered it
 fails with a clear logged/UI message, and nothing else in the component is affected. Wire one
-in via an `on_boot` lambda in a local, untracked config, e.g.:
-```yaml
-esphome:
-  on_boot:
-    - priority: -100
-      then:
-        - lambda: |-
-            id(heater).set_security_provider([](const uint8_t seed[4], uint8_t key_out[4]) -> bool {
-              static const uint8_t kSeed[4] = {0xAA, 0xBB, 0xCC, 0xDD};  // placeholder
-              static const uint8_t kKey[4] = {0x00, 0x00, 0x00, 0x00};  // placeholder
-              if (memcmp(seed, kSeed, 4) != 0)
-                return false;
-              memcpy(key_out, kKey, 4);
-              return true;
-            });
-```
+in via an `on_boot` lambda in a local, untracked config (example: README "Controlling the heater").
 
 ## Config burst decode, step 1: maintenance interval in `064` (2026-10-11 13:51–13:52)
 The EasyStart re-sends config frames **live on every settings change** (not only at power-up). Maintenance

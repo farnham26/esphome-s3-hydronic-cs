@@ -24,7 +24,10 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
 | `README.md`, `docs/img/` | Human-facing README with screenshots (web UI: `tools/webshot.py URL OUT 15`, heater awake; LCD: SDL). |
 | `esphome/boards/m5stack-fire.yaml` | Board package (Fire v2.7: PSRAM, SD CS held high). |
 | `tools/m5.sh` | upload/logs by stable by-id path. `tools/bootlog.py`: reset + boot log over USB. |
-| `docs/research.md` | Protocol research (Airtronic S3 map, J1939 HTR, heater facts). |
+| `docs/protocol.md` | Protocol reference (current decode). |
+| `docs/research.md` | Lab journal: dated experiments, raw captures (evidence for protocol.md). |
+| `docs/can-sniffing.md` | Capture method with the research tools. |
+| `docs/dtc.md` | DTC table. |
 
 ## Hardware
 - M5Stack **Fire v2.7** (CH9102 → by-id `usb-1a86_USB_Single_Serial_5864000646-if00`, WiFi 10.22.10.73) + **COMMU**.
@@ -120,7 +123,7 @@ tools/m5.sh upload         # USB; then OTA: esphome upload hydronic-s3.yaml --de
    bit 3 ("Vehicle Fan"); config frames `063`, `064`, timers `067`–`069`, clock `10A` decoded (docs/research.md).
    Open: `05D`–`062`/`06D`, `066`, timer B0 — not reachable from the menu; burst pairs likely heater 1 / heater 2.
    S+ bit: not in broadcasts/FD00–FD44/FEFF; unscanned: other DID ranges, local IDs (`21`).
-6. Open DIDs: water pump power (FD08 is the blower), FD0F B2–B5, FD13/14/16/1B/27, stored counters, DTC 19 06 layout.
+6. Open protocol items: `docs/protocol.md` "Open".
 7. Low prio: cooperate with the EasyStart instead of replacing it. Lead: OEM documents EasyStart Pro + Remote+
    combinations → a second control unit identity may be allowed (P000342 above a limit?); needs a capture of a
    real second unit. EasyStart self-wakes once 19 s after a foreign-woken bus sleeps (065 temperature update?).
