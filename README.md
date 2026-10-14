@@ -39,6 +39,14 @@ M5Stack Fire and its COMMU (MCP2515) CAN module.
 <p align="center"><em>Home Assistant dashboard during a cold start
   (<a href="docs/ha-dashboard.yaml"><code>docs/ha-dashboard.yaml</code></a>)</em></p>
 
+## Scope
+
+In scope: reading the heater's data, and controlling its operation. Diagnosing faults and improving understanding.
+Out of scope: changing the control unit's parameters or variant coding.
+
+This project writes nothing to the heater's coding and documents no way to do so. These settings determine the
+safety-relevant behaviour of a combustion heater and this software is not intended for this type of work.
+
 ## Status
 
 This is a working research project, not a product. Read-out is solid; start/stop works with the
