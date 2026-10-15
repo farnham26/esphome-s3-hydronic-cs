@@ -44,10 +44,16 @@ over CAN, to be integrated later into the user's tempcontrol heating regulator (
   - LCD SPI 40 MHz, flash XIP 80 MHz, upload 921600 — as in the emobotics m5stack-core BSP
     (Fire27 display/SD/LVGL experience, bus sharing).
   - Rejected: CoreS3 (LCD DC = SPI MISO = GPIO35); Basic unit on hand (dead backlight).
-  - Onboard 120 Ω on COMMU must be **off** for a mid-bus tap (verify).
+  - Onboard 120 Ω on COMMU must be **off** (verify: 60 Ω with the Fire plugged in, bus unpowered). It was **on**
+    in all tests up to 10-15 (bus ~40 Ω; no errors seen, REC/TEC 0) — switch off.
+  - Termination (measured 10-15, unpowered, EasyStart + Fire unplugged): **60 Ω** = both 120 Ω in the loom
+    (24 V tech description p30, R2): one at the heater connector XB2, one at the control-unit plug XB6/2 (bus end).
+    Diagnostic port XB6/1 is a stub. tempcontrol (transceiver in the junction box, short H/L to XB6/2; 1.5 m
+    TXD/RXD logic to the case) and Fire get **no** terminator. Not yet physically confirmed at XB6/2.
   - Supply: 24 V vehicle → buck ≥36 V input + TVS → 5 V.
 - EasyStart Pro stays on the bus. Bitrate 500 kbit/s **assumed** (Airtronic S3 RE); no frames → try 250k.
-- Tap: EasyStart Pro 4-pin connector (BU/RD, BU/BK) or diagnostic XB6/1 (has terminator cap).
+- Tap: EasyStart Pro 4-pin connector (BU/RD, BU/BK) or diagnostic XB6/1 (blind plug: 10 kΩ CANH–CANL, no
+  terminator). Final layout: tempcontrol (TWAI, control unit) on the EasyStart plug, Fire (`observer: true`) on XB6/1.
 - CAN RX: `components/mcp2515_irq` (fork of core mcp2515): INT ISR → reader task → queue; counts MCP2515
   RX overflows and queue drops. Rollover ordering per Linux mcp251x. Budget: read within ~460 µs of INT.
 - Display: LVGL (partial redraw) + `components/mipi_spi` (fork): pixel writes split into ≤1 KB bus holds,

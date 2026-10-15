@@ -65,7 +65,8 @@ The heater stores but does not execute timers; the EasyStart runs them (this fir
   heater sleeps. Run-down follows, no lock. A replacement controller therefore answers every wake with the "off"
   set until idle + 15 s, and keeps sending through the run-down after a stop.
 - **One controller only.** The EasyStart reacts to foreign controller frames (it sends "off"); P000342 = too many
-  CAN units. Replace it, do not join it.
+  CAN units. Replace it, do not join it. Testers on `7A0` are not controllers: several may share the bus, one
+  request at a time (the heater drops a request sent before it answered the pending one).
 - **Acknowledge:** without the EasyStart, someone must ack, or the heater repeats its first `625` forever.
 - **S+ (wired switch-on) wins over CAN:** a CAN "on" during an S+ run is ignored, S+ off ends the run. No S+ status
   bit was found; the request source is inferred from FD10 B0. With S+ held on at power-up the CAN wake fails.

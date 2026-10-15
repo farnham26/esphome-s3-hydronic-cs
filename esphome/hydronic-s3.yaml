@@ -146,6 +146,8 @@ hydronic_s3:
   # Optional: set the heater's clock (as the EasyStart's time setting) from this time
   # source; sent with the config burst and on each sync while we control the heater.
   time_id: sntp_time
+  # Diagnosis only: tempcontrol is the control unit (runtime switch "Observer").
+  observer: true
 
 time:
   - platform: sntp  # or homeassistant
@@ -601,9 +603,22 @@ switch:
     web_server:
       sorting_group_id: group_control
     turn_on_action:
-      - lambda: "id(heater).set_command(true);"
+      - hydronic_s3.command: {id: heater, run: true}
     turn_off_action:
-      - lambda: "id(heater).set_command(false);"
+      - hydronic_s3.command: {id: heater, run: false}
+  # Observer: diagnosis only, another control unit (tempcontrol) owns the heater; Heater Run refused.
+  - platform: template
+    name: "Observer"
+    icon: mdi:eye
+    lambda: "return id(heater).observer();"
+    restore_mode: DISABLED  # no action at boot: the config's observer: stays
+    entity_category: config
+    web_server:
+      sorting_group_id: group_control
+    turn_on_action:
+      - lambda: "id(heater).set_observer(true);"
+    turn_off_action:
+      - lambda: "id(heater).set_observer(false);"
 
 globals:
   # "Heater Mode" as chosen (HydronicS3::MODE_*); the select itself shows "S+" while S+ runs.

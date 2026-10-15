@@ -98,6 +98,11 @@ class HydronicS3 : public Component {
   void set_canbus(canbus::Canbus *bus) { this->canbus_ = bus; }
   /// Research aids: per-ID table, change log, wake trace (off: decode only).
   void set_research(bool research) { this->research_ = research; }
+  /// Observer: diagnosis only (decode, UDS tester), never a control unit — no command set,
+  /// wake answer, config burst or clock; another control unit (e.g. tempcontrol) owns the
+  /// heater. Not switched on while we command (the heater would lose its control unit).
+  void set_observer(bool observer);
+  bool observer() const { return this->observer_; }
 #ifdef USE_TIME
   /// Clock for the heater (10A, as the EasyStart's time setting): sent with the config
   /// burst and on each sync while we command. Without it, 10A carries "time not set".
@@ -137,7 +142,7 @@ class HydronicS3 : public Component {
   enum RequestSource : uint8_t { REQUEST_NONE, REQUEST_CAN, REQUEST_S_PLUS, REQUEST_EASYSTART };
   RequestSource request_source() const { return this->request_source_; }
   static const char *request_source_name(RequestSource source);
-  /// The heater runs on a request that is not ours (S+ or an EasyStart).
+  /// The heater runs on a request that is not ours (S+ or another control unit).
   bool external_request() const {
     return this->request_source_ == REQUEST_S_PLUS || this->request_source_ == REQUEST_EASYSTART;
   }
@@ -226,6 +231,7 @@ class HydronicS3 : public Component {
   void track_id_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data, uint32_t now);
   static void hex(char *out, const uint8_t *d, uint8_t len);  // "AA BB ..", 3 chars per byte
   bool research_{false};
+  bool observer_{false};
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
   void event_(const char *what, int from, int to);
@@ -274,6 +280,11 @@ class HydronicS3 : public Component {
   std::vector<uint8_t> isotp_buf_;  // diagnostic response being reassembled
   size_t isotp_len_{0};
   bool diag_requested_{false};  // we are the tester: answer first frames with flow control
+  /// Another tester's request on 0x7A0 awaits its answer until then (0: none): the heater
+  /// drops a request that overlaps a pending one, so ours wait.
+  uint32_t foreign_diag_until_ms_{0};
+  bool diag_free_() const;
+  uint16_t scan_expect_{0};  // id of our pending scan request: another tester's answers are not ours
   void publish_diag_(const std::string &text);
   std::function<bool(bool)> listen_only_hook_;
   bool scan_active_{false};
@@ -389,6 +400,36 @@ class EventTrigger : public Trigger<std::string, int, int> {
     parent->add_on_event_callback(
         [this](const std::string &what, int from, int to) { this->trigger(what, from, to); });
   }
+};
+
+/// hydronic_s3.command: mode and lease (if given) first, then set_command(run).
+template<typename... Ts> class CommandAction : public Action<Ts...> {
+ public:
+  explicit CommandAction(HydronicS3 *parent) : parent_(parent) {}
+  TEMPLATABLE_VALUE(bool, run)
+  TEMPLATABLE_VALUE(uint8_t, mode)
+  TEMPLATABLE_VALUE(uint32_t, lease)
+
+  void play(const Ts &...x) override {
+    if (this->mode_.has_value())
+      this->parent_->set_command_mode(this->mode_.value(x...));
+    if (this->lease_.has_value())
+      this->parent_->set_command_lease(this->lease_.value(x...));
+    this->parent_->set_command(this->run_.value(x...));
+  }
+
+ protected:
+  HydronicS3 *parent_;
+};
+
+/// hydronic_s3.commanding: command_on().
+template<typename... Ts> class CommandingCondition : public Condition<Ts...> {
+ public:
+  explicit CommandingCondition(HydronicS3 *parent) : parent_(parent) {}
+  bool check(const Ts &...x) override { return this->parent_->command_on(); }
+
+ protected:
+  HydronicS3 *parent_;
 };
 
 }  // namespace esphome::hydronic_s3

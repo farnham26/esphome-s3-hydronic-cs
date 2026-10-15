@@ -156,6 +156,7 @@ hydronic_s3:
   canbus_id: heater_can
   time_id: sntp_time             # optional: send our clock to the heater (needs a time: source)
   research: false                # optional: ID table, change log, wake trace in the log
+  observer: false                # optional: diagnosis only, another unit is the control unit
   on_event:                      # optional: transitions (what, from, to), see "Controlling the heater"
     - lambda: 'ESP_LOGI("heater", "%s: %d -> %d", what.c_str(), from, to);'
 
@@ -192,13 +193,14 @@ switch:
     name: "Heater Run"
     lambda: "return id(heater).command_on();"
     turn_on_action:
-      - lambda: "id(heater).set_command(true);"
+      - hydronic_s3.command: {id: heater, run: true}
     turn_off_action:
-      - lambda: "id(heater).set_command(false);"
+      - hydronic_s3.command: {id: heater, run: false}
 ```
 
-Mode (`set_command_mode(MODE_HEAT | MODE_FAN | MODE_RESIDUAL)`) and watchdog (`set_command_lease(ms)`):
-see `esphome/example-twai.yaml`.
+Action `hydronic_s3.command`: `run` (start/stop), optional `mode` (`HEAT` | `FAN` | `RESIDUAL`) and
+`lease` (watchdog, e.g. `5min`, `0s` = none); all templatable. Condition `hydronic_s3.commanding`: we
+command "on". Full example: `esphome/example-twai.yaml`.
 
 ## Controlling the heater
 
@@ -235,6 +237,13 @@ All controls are in the web UI group **Heater Control**.
   3. After turning off, wait for `idle` (run-down finished, phase `00`) before counting any keep-off
      time or turning on again; an early request restarts a hot burner (extra purge, phase `0D`).
 - A start hold (fault flag `0x40`) is retried up to three times, then the switch turns off.
+- **S+ wins**: `run: true` is refused (log warning only) while the heater runs on S+; release S+ first.
+  A watchdog stops a run, it never restarts a stopped heater.
+- **Observer** (`observer: true`, runtime switch **Observer**): a second unit for display and diagnosis
+  next to the one that controls the heater (one control unit per bus). It decodes everything, including
+  the other unit's UDS answers, and stays a UDS tester (scans, requests, fault codes), but sends no
+  control frames: `Heater Run` is refused. Its requests wait for another tester's pending answer; `11`,
+  `28`, `85` and `31 01` are refused while the heater is active.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).
 - **Read Fault Codes** / **Clear Fault Codes** (buttons): the error memory as the EasyStart's workshop

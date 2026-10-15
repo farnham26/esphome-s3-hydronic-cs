@@ -170,7 +170,7 @@ const char *HydronicS3::request_source_name(RequestSource source) {
     case REQUEST_S_PLUS:
       return "S+";
     case REQUEST_EASYSTART:
-      return "EasyStart";
+      return "Other control unit";
     default:
       return "None";
   }
@@ -178,7 +178,8 @@ const char *HydronicS3::request_source_name(RequestSource source) {
 
 // FD10 B0 is the request the heater acts on (01 heat, 03 fan, 04 residual heat, 00 none), from S+
 // and CAN alike; no polled DID or broadcast bit tells the source apart (10-11 S+/CAN series), so it
-// is inferred: an EasyStart's while one is on the bus, ours while we command "on", else S+.
+// is inferred: another control unit's (EasyStart, tempcontrol) while one is on the bus, ours while we
+// command "on", else S+.
 // Samples within REQUEST_SETTLE_MS of our own command change may show the old request: skipped.
 void HydronicS3::update_request_(int request) {
   if (request >= 0 && millis() - this->command_change_ms_ < REQUEST_SETTLE_MS)
@@ -356,7 +357,19 @@ void HydronicS3::expire_stale_() {
 }
 
 void HydronicS3::dump_config() {
-  ESP_LOGCONFIG(TAG, "Hydronic S3: research %s", this->research_ ? "on" : "off");
+  ESP_LOGCONFIG(TAG, "Hydronic S3: research %s, %s", this->research_ ? "on" : "off",
+                this->observer_ ? "observer" : "control unit");
+}
+
+void HydronicS3::set_observer(bool observer) {
+  if (observer == this->observer_)
+    return;
+  if (observer && this->commanding_()) {  // silence now would leave the heater without its control unit
+    ESP_LOGW(TAG, "observer refused: we command the heater");
+    return;
+  }
+  this->observer_ = observer;
+  ESP_LOGI(TAG, "%s", observer ? "observer: no control unit frames" : "control unit role");
 }
 
 void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data) {
@@ -398,6 +411,9 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     hex(buf, data.data(), len);
     ESP_LOGD(TAG, "uds %s %s", can_id == ID_DIAG_REQUEST ? "req" : "rsp", buf);
   }
+  // Another tester (we never receive our own frames): its request is pending until the answer.
+  if (!ext && can_id == ID_DIAG_REQUEST)
+    this->foreign_diag_until_ms_ = now + DIAG_TIMEOUT_MS;
   // EasyStart frames (the controller never receives its own): copy its keep-alive,
   // and stop commanding at once when it is on the bus.
   const bool easystart = !ext && ((can_id >= ID_COMMAND && can_id <= 0x057) || can_id == ID_CONTROLLER_STATUS ||
@@ -406,7 +422,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     const bool was_present = this->easystart_present_();
     this->easystart_ms_ = now;
     if (!was_present) {
-      ESP_LOGI(TAG, "EasyStart present");
+      ESP_LOGI(TAG, "other control unit present");
       this->update_mode_();
     }
   }
@@ -415,7 +431,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->controller_data_);
   if (easystart && this->commanding_()) {
-    ESP_LOGW(TAG, "EasyStart frame %03" PRIX32 " seen: command stopped", can_id);
+    ESP_LOGW(TAG, "control unit frame %03" PRIX32 " seen: command stopped", can_id);
     this->event_("cmd backoff", can_id, 0);
     this->command_on_ = false;
     this->command_change_ms_ = millis();
@@ -466,7 +482,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       this->poll_next_ms_ = millis();  // mode: by the state change below
       // As the EasyStart: a control unit answers every wake ("off" until idle + COMMAND_OFF_MS);
       // a heater left without one raises P000307 after ~15 s.
-      if (!this->easystart_present_() && !this->command_on_) {
+      if (!this->observer_ && !this->easystart_present_() && !this->command_on_) {
         this->command_until_ms_ = millis() + COMMAND_OFF_MS;
         this->command_next_ms_ = millis();
         this->update_mode_();
@@ -574,9 +590,19 @@ void HydronicS3::send_uds_request(const std::string &hex) {
     payload.push_back(static_cast<uint8_t>(strtoul(hex.substr(i, 2).c_str(), nullptr, 16)));
     i += 2;
   }
+  // Not while the heater is active: these would reset it, silence its broadcasts (the control
+  // unit loses it), stop fault logging, or start an unknown routine.
+  const bool active = this->connected() && (this->rundown_ || (this->state_ != 0x00 && this->state_ != 0x03));
+  if (active && !payload.empty() &&
+      (payload[0] == 0x11 || payload[0] == 0x28 || payload[0] == 0x85 ||
+       (payload[0] == 0x31 && payload.size() >= 2 && payload[1] == 0x01))) {
+    ESP_LOGW(TAG, "UDS request '%s' refused: heater active", hex.c_str());
+    this->publish_diag_("refused: heater active");
+    return;
+  }
   // Single frame only: up to 7 payload bytes. Pre-empts a poll sweep (the next interval restarts it).
-  // The heater drops a request sent before it has answered the sweep's: wait for that answer.
-  if (this->sweep_ && this->scan_awaiting_) {
+  // The heater drops a request sent before it has answered the sweep's (or another tester's): wait.
+  if ((this->sweep_ && this->scan_awaiting_) || !this->diag_free_()) {
     this->after_sweep_ = [this, hex]() { this->send_uds_request(hex); };
     return;
   }
@@ -631,6 +657,10 @@ bool HydronicS3::set_listen_only_(bool listen_only) {
   return true;
 }
 
+bool HydronicS3::diag_free_() const {
+  return this->foreign_diag_until_ms_ == 0 || static_cast<int32_t>(millis() - this->foreign_diag_until_ms_) >= 0;
+}
+
 bool HydronicS3::easystart_present_() const {
   return this->easystart_ms_ != 0 && millis() - this->easystart_ms_ < EASYSTART_GONE_MS;
 }
@@ -643,12 +673,19 @@ void HydronicS3::update_mode_() {
 }
 
 void HydronicS3::set_command(bool on) {
+  if (this->observer_) {
+    ESP_LOGW(TAG, "observer: command %s refused", on ? "ON" : "OFF");
+    return;
+  }
   // S+ wins: the heater ignores a CAN "on" during an S+ run and stops at S+ off (10-11 18:04).
   if (on && !this->command_on_ && this->request_source_ == REQUEST_S_PLUS) {
     ESP_LOGW(TAG, "S+ requested: command ON refused");
     this->event_("cmd refused", 0, 1);
     return;
   }
+  // Nothing to stop (e.g. a switch's turn_off at boot): no "off" set, which would wake a sleeping bus.
+  if (!on && !this->commanding_())
+    return;
   if (on)
     this->command_deadline_ms_ = millis() + this->command_lease_ms_;
   if (on && this->command_on_) {
@@ -852,7 +889,7 @@ void HydronicS3::loop() {
     this->diag_requested_ = false;
     this->update_mode_();
   }
-  if (this->after_sweep_ && !(this->scan_active_ && this->scan_awaiting_)) {  // the sweep's answer is in
+  if (this->after_sweep_ && !(this->scan_active_ && this->scan_awaiting_) && this->diag_free_()) {  // answers are in
     auto request = std::move(this->after_sweep_);
     this->after_sweep_ = nullptr;
     request();
@@ -888,9 +925,10 @@ void HydronicS3::loop() {
     this->publish_diag_(buf);
     return;
   }
-  if (!this->tx_queue_.empty())  // controller frames first: they would fill the TX buffers
+  if (!this->tx_queue_.empty() || !this->diag_free_())  // controller frames first; another tester's answer first
     return;
   const uint16_t id = this->sweep_ ? this->sweep_dids_[this->scan_next_++] : static_cast<uint16_t>(this->scan_next_++);
+  this->scan_expect_ = id;
   std::vector<uint8_t> req;
   if (this->scan_service_ == 0x21)
     req = {0x02, 0x21, static_cast<uint8_t>(id), ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
@@ -943,6 +981,10 @@ void HydronicS3::publish_diag_(const std::string &text) {
 }
 
 void HydronicS3::request_fault_codes(uint8_t status_mask) {
+  if (!this->diag_free_()) {  // see send_uds_request()
+    this->after_sweep_ = [this, status_mask]() { this->request_fault_codes(status_mask); };
+    return;
+  }
   if (!this->set_listen_only_(false))
     return;
   this->single_until_ms_ = millis() + 3000;  // answer window, then back to listen-only
@@ -958,7 +1000,7 @@ void HydronicS3::clear_dtc() {
     this->publish_diag_("DTC clear failed: no security provider registered");
     return;
   }
-  if (this->sweep_ && this->scan_awaiting_) {  // see send_uds_request()
+  if ((this->sweep_ && this->scan_awaiting_) || !this->diag_free_()) {  // see send_uds_request()
     this->after_sweep_ = [this]() { this->clear_dtc(); };
     return;
   }
@@ -1050,6 +1092,10 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
   switch (data[0] >> 4) {
     case 0x0: {  // single frame
       const size_t len = data[0] & 0x0F;
+      // Answered: another tester's request is done, unless "response pending" (NRC 78).
+      const bool pending = len >= 3 && data.size() >= 4 && data[1] == 0x7F && data[3] == NRC_RESPONSE_PENDING;
+      if (this->foreign_diag_until_ms_ != 0)
+        this->foreign_diag_until_ms_ = pending ? millis() + DIAG_PENDING_TIMEOUT_MS : 0;
       if (len >= 1 && len < data.size())
         this->uds_(std::vector<uint8_t>(data.begin() + 1, data.begin() + 1 + len));
       this->isotp_len_ = 0;
@@ -1075,6 +1121,7 @@ void HydronicS3::diag_response_(const std::vector<uint8_t> &data) {
         this->isotp_buf_.resize(this->isotp_len_);
         this->isotp_len_ = 0;
         this->diag_requested_ = false;
+        this->foreign_diag_until_ms_ = 0;
         this->uds_(this->isotp_buf_);
       }
       break;
@@ -1112,8 +1159,14 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
     text += " '" + ascii + "'";
     if (payload[0] == 0x62)
       this->decode_did_(payload[1] << 8 | payload[2], payload.data() + 3, payload.size() - 3);
-    this->scan_positive_++;
-    this->scan_answered_();
+    // Ours only if it answers our pending scan request (another tester's answers decode as well).
+    const uint16_t id = payload[0] == 0x62 ? payload[1] << 8 | payload[2]
+                        : payload[0] == 0x71 ? payload[2] << 8 | payload[3]
+                                             : payload[1];
+    if (this->scan_awaiting_ && payload[0] == (this->scan_service_ | 0x40) && id == this->scan_expect_) {
+      this->scan_positive_++;
+      this->scan_answered_();
+    }
     this->publish_diag_(text);
     return;
   }

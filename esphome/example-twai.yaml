@@ -97,6 +97,16 @@ interval:
           } else if (st.state == TWAI_STATE_STOPPED) {
             twai_start();
           }
+          // No node acks (heater asleep/unpowered): TWAI retransmits the frame forever at
+          // 100 % bus load (error-passive, no bus-off). After 2 s, drop it (stop clears TX).
+          static uint8_t unacked = 0;
+          unacked = (st.state == TWAI_STATE_RUNNING && st.tx_error_counter >= 128 && st.msgs_to_tx > 0) ? unacked + 1 : 0;
+          if (unacked >= 2) {
+            ESP_LOGW("twai", "no ack for 2 s, dropping pending TX");
+            twai_stop();
+            twai_start();
+            unacked = 0;
+          }
 
 switch:
   - platform: template
@@ -105,9 +115,9 @@ switch:
     lambda: "return id(heater).command_on();"
     restore_mode: ALWAYS_OFF
     turn_on_action:
-      - lambda: "id(heater).set_command(true);"
+      - hydronic_s3.command: {id: heater, run: true}
     turn_off_action:
-      - lambda: "id(heater).set_command(false);"
+      - hydronic_s3.command: {id: heater, run: false}
   - platform: template
     id: heat_demand_switch
     name: "Heat Demand"
