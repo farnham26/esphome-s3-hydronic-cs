@@ -727,6 +727,12 @@ void HydronicS3::command_loop_() {
     this->set_command(false);
   }
   if (!this->command_on_ && static_cast<int32_t>(now - this->command_until_ms_) >= 0) {
+    // Window over: drop control-unit frames still queued (unacked, heater asleep), else
+    // they trail on the bus one per TX timeout.
+    if (this->command_until_ms_ != 0)
+      this->tx_queue_.erase(std::remove_if(this->tx_queue_.begin(), this->tx_queue_.end(),
+                                           [](const TxFrame &f) { return f.id != ID_DIAG_REQUEST; }),
+                            this->tx_queue_.end());
     this->command_until_ms_ = 0;
     this->update_mode_();
     return;
