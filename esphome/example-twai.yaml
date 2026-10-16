@@ -36,13 +36,14 @@ hydronic_s3:
   id: heater
   canbus_id: heater_can
   # The regulator pattern from the README ("Stopping from a regulator").
-  on_coolant_limit_pause:
+  on_run_ended:  # burn ended at the coolant limit (run still on), or the heater ended the run
+    - logger.log: {format: "run ended: %s", args: [reason.c_str()]}
     - script.execute: heater_regulate
   on_new_fault_code:
     - logger.log: {format: "new heater fault code %s", args: [code.c_str()], level: WARN}
 
-# Regulator output -> burner, without wasted cycles: off only while the burner is out (coolant
-# limit pause, or not started). A stop during a start is deferred by the component. Fan /
+# Regulator output -> burner, without wasted cycles: off only while the burner is out (end of a
+# burn, or not started). A stop during a start is deferred by the component. Fan /
 # Residual heat: no burner, stops at once.
 script:
   - id: heater_regulate

@@ -12,8 +12,7 @@ CONF_HYDRONIC_S3_ID = "hydronic_s3_id"
 CONF_RESEARCH = "research"
 CONF_OBSERVER = "observer"
 CONF_ON_EVENT = "on_event"
-CONF_ON_COOLANT_LIMIT_PAUSE = "on_coolant_limit_pause"
-CONF_ON_START_REFUSED = "on_start_refused"
+CONF_ON_RUN_ENDED = "on_run_ended"
 CONF_ON_NEW_FAULT_CODE = "on_new_fault_code"
 CONF_LEASE = "lease"
 CONF_POLL_INTERVAL = "poll_interval"
@@ -24,15 +23,10 @@ HydronicS3 = hydronic_s3_ns.class_("HydronicS3", cg.Component)
 EventTrigger = hydronic_s3_ns.class_(
     "EventTrigger", automation.Trigger.template(cg.std_string, cg.int_, cg.int_)
 )
-NamedEventTrigger = hydronic_s3_ns.class_("NamedEventTrigger", automation.Trigger.template())
+RunEndedTrigger = hydronic_s3_ns.class_("RunEndedTrigger", automation.Trigger.template(cg.std_string))
 NewFaultCodeTrigger = hydronic_s3_ns.class_(
     "NewFaultCodeTrigger", automation.Trigger.template(cg.std_string)
 )
-# Trigger key -> event name (hydronic_s3.cpp).
-NAMED_EVENTS = {
-    CONF_ON_COOLANT_LIMIT_PAUSE: "coolant_limit_pause",
-    CONF_ON_START_REFUSED: "start_refused",
-}
 CommandAction = hydronic_s3_ns.class_("CommandAction", automation.Action)
 CommandingCondition = hydronic_s3_ns.class_("CommandingCondition", automation.Condition)
 BurnerOnCondition = hydronic_s3_ns.class_("BurnerOnCondition", automation.Condition)
@@ -58,13 +52,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_ON_EVENT): automation.validate_automation(
             {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(EventTrigger)}
         ),
-        # Burner out at the heater's own coolant limit, straight from heating, no fault flags.
-        cv.Optional(CONF_ON_COOLANT_LIMIT_PAUSE): automation.validate_automation(
-            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(NamedEventTrigger)}
-        ),
-        # Start hold after all retries; the run is turned off.
-        cv.Optional(CONF_ON_START_REFUSED): automation.validate_automation(
-            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(NamedEventTrigger)}
+        # A run we commanded ended other than by our stop; never during a start (variable reason, log only).
+        cv.Optional(CONF_ON_RUN_ENDED): automation.validate_automation(
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(RunEndedTrigger)}
         ),
         # A stored fault code not in the memory before (variable code, e.g. "P000250").
         cv.Optional(CONF_ON_NEW_FAULT_CODE): automation.validate_automation(
@@ -99,10 +89,9 @@ async def to_code(config):
         await automation.build_automation(
             trigger, [(cg.std_string, "what"), (cg.int_, "from"), (cg.int_, "to")], conf
         )
-    for key, what in NAMED_EVENTS.items():
-        for conf in config.get(key, []):
-            trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var, what)
-            await automation.build_automation(trigger, [], conf)
+    for conf in config.get(CONF_ON_RUN_ENDED, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [(cg.std_string, "reason")], conf)
     for conf in config.get(CONF_ON_NEW_FAULT_CODE, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [(cg.std_string, "code")], conf)

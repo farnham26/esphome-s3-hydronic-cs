@@ -213,6 +213,17 @@ class HydronicS3 : public Component {
   /// Burner starting or heating (FD10 phase, polled); false while unknown.
   bool burner_on() const;
   uint8_t command_mode() const { return this->command_mode_; }
+  /// Why a run we commanded ended (run_ended event, on_run_ended reason).
+  enum RunEnd : uint8_t {
+    RUN_END_COOLANT_LIMIT = 1,  // burn ended at the coolant limit, run still on
+    RUN_END_PAUSE_FAULT,        // same, with fault flags set
+    RUN_END_START_REFUSED,      // start hold after all retries
+    RUN_END_HEATER_STOPPED,     // phase C8 / 1E / DE / 00 without our stop
+    RUN_END_RESIDUAL,           // residual heat ended or refused (2C4 C1)
+    RUN_END_OTHER_CONTROL_UNIT,
+    RUN_END_WATCHDOG,
+  };
+  static const char *run_end_name(int why);
   /// Sweep interval of sensor_dids(); polling starts at boot unless a polling switch decides.
   void set_poll_interval(uint32_t ms) { this->sensor_poll_ms_ = ms; }
   uint32_t poll_interval() const { return this->sensor_poll_ms_; }
@@ -252,8 +263,8 @@ class HydronicS3 : public Component {
   const std::map<uint32_t, IdState> &ids() const { return this->ids_; }
   uint32_t frames() const { return this->frames_; }
   /// Every logged transition (what, from, to), plus named ones: burner_starting, flame_stable,
-  /// control_pause, idle (FD10 phase, polled), residual_end (2C4 state C1), coolant_limit_pause,
-  /// start_refused, new_fault_code (to: code). Called from loop().
+  /// control_pause, idle (FD10 phase, polled), residual_end (2C4 state C1), run_ended (from: RunEnd),
+  /// new_fault_code (to: code). Called from loop().
   template<typename F> void add_on_event_callback(F &&callback) { this->event_callback_.add(std::forward<F>(callback)); }
 
  protected:
@@ -368,6 +379,8 @@ class HydronicS3 : public Component {
   bool command_on_{false};
   bool stop_deferred_{false};  // stop requested during a start: sent once the start phase ends
   void deferred_stop_();
+  bool run_end_final_{false};  // run_ended for this run already raised (final kinds)
+  void run_ended_(RunEnd why, int detail, bool stop);
   uint8_t command_mode_{MODE_HEAT};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
@@ -448,13 +461,16 @@ class EventTrigger : public Trigger<std::string, int, int> {
   }
 };
 
-/// Fires on events named `what` (see hydronic_s3.cpp: coolant_limit_pause, start_refused).
-class NamedEventTrigger : public Trigger<> {
+/// on_run_ended: a run we commanded ended other than by our stop (reason: run_end_name(), log only).
+class RunEndedTrigger : public Trigger<std::string> {
  public:
-  NamedEventTrigger(HydronicS3 *parent, const char *what) {
-    parent->add_on_event_callback([this, what](const std::string &w, int, int) {
-      if (w == what)
-        this->trigger();
+  explicit RunEndedTrigger(HydronicS3 *parent) {
+    parent->add_on_event_callback([this](const std::string &w, int why, int detail) {
+      if (w != "run_ended")
+        return;
+      char text[64];
+      snprintf(text, sizeof(text), "%s (0x%02X)", HydronicS3::run_end_name(why), detail);
+      this->trigger(text);
     });
   }
 };

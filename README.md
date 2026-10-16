@@ -229,16 +229,22 @@ All controls are in the web UI group **Heater Control**.
 - **Clock**: with `time_id:` on `hydronic_s3` the heater gets our time (`10A`, as the EasyStart's
   time setting).
 - **Triggers** on `hydronic_s3` (phase-based ones lag up to one `poll_interval`):
-  - **`on_coolant_limit_pause:`** the burner went out because the coolant reached the heater's own upper
-    limit (≈83 °C; straight from heating, no fault flags). Never on reconnect. Abnormal stops do not fire it
-    (they raise a fault code); an overheat without a fault code is untested.
-  - **`on_start_refused:`** the heater held the start (fault flag `0x40`) after all retries; the run is off.
+  - **`on_run_ended:`** (variable `reason`, for logging only) a run started with `run: true` ended other
+    than by `run: false`; never during a start or a start retry. Covers:
+    - end of a burn at the heater's coolant limit (≈83 °C, pause straight from heating), also with fault
+      flags set: the run stays on and the heater restarts at ≈71 °C unless released. Once per burn.
+    - the heater ended the run itself (blocked `C8`, run-down `1E`, residual heat refused/ended, off):
+      the component releases the run.
+    - start refused after all retries, another control unit on the bus, run watchdog: the run is off.
+
+    A regulator releases its request here (`run: false`) without looking at `reason`. Paths seen on the
+    heater so far: residual heat refused; the others are unverified.
   - **`on_new_fault_code:`** (variable `code`, e.g. `"P000250"`) a stored fault code that was not in the
     memory before (read on connect and when the fault flags rise). After a clear, a recurrence fires again.
   - `on_event:` (every transition, names unstable) needs `research: true`.
 - **Stopping from a regulator** (avoid wasted burner cycles; each start costs glow energy, a fuel
   stroke and soot):
-  1. Turn off at `on_coolant_limit_pause`, or whenever `hydronic_s3.burner_on` is false: the loop is fully charged
+  1. Turn off at `on_run_ended`, or whenever `hydronic_s3.burner_on` is false: the loop is fully charged
      and the burner is out, so the stop costs nothing and prevents the heater's own restart (~70 °C).
      See `esphome/example-twai.yaml`.
   2. A stop during a start (glow/fuel phase) is deferred by the component until the start is over;

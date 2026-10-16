@@ -439,6 +439,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   if (easystart && this->commanding_()) {
     ESP_LOGW(TAG, "control unit frame %03" PRIX32 " seen: command stopped", can_id);
     this->event_("cmd backoff", can_id, 0);
+    this->run_ended_(RUN_END_OTHER_CONTROL_UNIT, can_id, false);
     this->command_on_ = false;
     this->command_change_ms_ = millis();
     this->command_until_ms_ = 0;
@@ -467,6 +468,27 @@ void HydronicS3::event_(const char *what, int from, int to) {
 static bool start_phase(int phase) { return phase == 0x0F || phase == 0x0D || phase == 0x0A || phase == 0x0C; }
 static bool pause_phase(int phase) { return phase == 0x1F || phase == 0x28; }
 
+const char *HydronicS3::run_end_name(int why) {
+  switch (why) {
+    case RUN_END_COOLANT_LIMIT:
+      return "coolant limit pause";
+    case RUN_END_PAUSE_FAULT:
+      return "pause with fault flags";
+    case RUN_END_START_REFUSED:
+      return "start refused";
+    case RUN_END_HEATER_STOPPED:
+      return "heater stopped";
+    case RUN_END_RESIDUAL:
+      return "residual heat ended or refused";
+    case RUN_END_OTHER_CONTROL_UNIT:
+      return "other control unit";
+    case RUN_END_WATCHDOG:
+      return "run watchdog";
+    default:
+      return "unknown";
+  }
+}
+
 bool HydronicS3::burner_on() const { return start_phase(this->phase_) || this->phase_ == 0x14; }
 
 // Named events on phase entry (also from unknown, -1: after a reconnect the current one fires).
@@ -477,9 +499,13 @@ void HydronicS3::phase_events_(int from, int to) {
     this->event_("flame_stable", from, to);
   if (pause_phase(to) && !pause_phase(from))
     this->event_("control_pause", from, to);
-  // Regular end of a burn: straight from heating, no fault flags (abnormal stops: new_fault_code).
-  if (pause_phase(to) && from == 0x14 && this->fault_code_ == 0)
-    this->event_("coolant_limit_pause", from, to);
+  // End of a burn straight from heating: the heater restarts at ~71 °C while the run stays on.
+  if (pause_phase(to) && from == 0x14)
+    this->run_ended_(this->fault_code_ == 0 ? RUN_END_COOLANT_LIMIT : RUN_END_PAUSE_FAULT, this->fault_code_, false);
+  // The heater ended the run itself (blocked, run-down, refused, off): our "on" would stay stuck.
+  const bool stopped = to == 0xC8 || to == 0x1E || to == 0xDE || (to == 0x00 && from > 0x00 && !start_phase(from));
+  if (stopped && from != to && this->retry_until_ms_ == 0)
+    this->run_ended_(RUN_END_HEATER_STOPPED, to, true);
   if (to == 0x00 && from > 0x00)
     this->event_("idle", from, to);
 }
@@ -518,8 +544,10 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     }
     if (data[0] != this->state_) {
       this->event_("state", this->state_, data[0]);
-      if (data[0] == 0xC1)  // residual heat ended or refused (coolant too cold)
+      if (data[0] == 0xC1) {  // residual heat ended or refused (coolant too cold)
         this->event_("residual_end", this->state_, data[0]);
+        this->run_ended_(RUN_END_RESIDUAL, data[0], true);
+      }
       this->state_ = data[0];
       this->idle_sweeps_ = IDLE_SWEEPS;
       this->update_mode_();
@@ -547,8 +575,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
         this->event_("start retry", this->start_retries_ - 1, this->start_retries_);
       } else {
         ESP_LOGW(TAG, "start hold after %u retries: command off", START_RETRIES);
-        this->event_("start_refused", START_RETRIES, 0);
-        this->set_command(false);
+        this->run_ended_(RUN_END_START_REFUSED, START_RETRIES, true);
       }
     }
     if (data[2] != this->fault_code_) {
@@ -724,6 +751,8 @@ void HydronicS3::set_command(bool on) {
   }
   this->start_retries_ = 0;
   this->retry_until_ms_ = 0;
+  if (on)
+    this->run_end_final_ = false;
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on);
   this->command_on_ = on;
@@ -732,6 +761,24 @@ void HydronicS3::set_command(bool on) {
   this->command_next_ms_ = millis();
   this->update_mode_();
   this->schedule_burst_();
+}
+
+// Our run ended other than by set_command(false): once per end (pauses: per burn, the run stays on),
+// once per run for the final ones. stop: the heater is done, release our "on".
+void HydronicS3::run_ended_(RunEnd why, int detail, bool stop) {
+  if (!this->command_on_)
+    return;
+  const bool final = why != RUN_END_COOLANT_LIMIT && why != RUN_END_PAUSE_FAULT;
+  if (final) {
+    if (this->run_end_final_)
+      return;
+    this->run_end_final_ = true;
+  }
+  this->event_("run_ended", why, detail);
+  if (stop) {
+    ESP_LOGW(TAG, "run ended by the heater (%d, 0x%02X): command off", why, detail);
+    this->set_command(false);
+  }
 }
 
 void HydronicS3::deferred_stop_() {
@@ -760,6 +807,7 @@ void HydronicS3::command_loop_() {
       static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
     if (!this->stop_deferred_)
       ESP_LOGW(TAG, "run watchdog expired: off");
+    this->run_ended_(RUN_END_WATCHDOG, 0, false);
     this->set_command(false);
   }
   if (!this->command_on_ && static_cast<int32_t>(now - this->command_until_ms_) >= 0) {
