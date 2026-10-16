@@ -157,15 +157,9 @@ hydronic_s3:
   time_id: sntp_time             # optional: send our clock to the heater (needs a time: source)
   research: false                # optional: ID table, change log, wake trace in the log
   observer: false                # optional: diagnosis only, another unit is the control unit
-  on_event:                      # optional: transitions (what, from, to), see "Controlling the heater"
-    - lambda: 'ESP_LOGI("heater", "%s: %d -> %d", what.c_str(), from, to);'
-
-esphome:
-  on_boot:
-    - priority: -100
-      then:
-        # Poll the live values every 5 s; stops by itself while the heater sleeps.
-        - lambda: "id(heater).start_polling(hydronic_s3::HydronicS3::sensor_dids(), 5000);"
+  poll_interval: 5s              # optional: sweep of the polled values; stops while the heater sleeps
+  on_new_fault_code:             # optional, see "Controlling the heater"
+    - logger.log: {format: "new fault code %s", args: [code.c_str()]}
 
 sensor:
   - platform: hydronic_s3
@@ -189,18 +183,29 @@ text_sensor:
     # hardware_version, software_version, part_number, serial_number, diag_response
 
 switch:
-  - platform: template
+  - platform: hydronic_s3
+    type: run                                 # start/stop; reads back refusals and stops by the component
     name: "Heater Run"
-    lambda: "return id(heater).command_on();"
-    turn_on_action:
-      - hydronic_s3.command: {id: heater, run: true}
-    turn_off_action:
-      - hydronic_s3.command: {id: heater, run: false}
+  # type: polling (on at boot; without it, polling always runs)
+
+select:
+  - platform: hydronic_s3
+    mode: {name: "Heater Mode"}               # Heat / Residual heat / Fan, restored; "S+" while S+ runs
+
+number:
+  - platform: hydronic_s3
+    run_watchdog: {name: "Heater Run Watchdog"}   # minutes, restored, 0 = none
+
+button:
+  - platform: hydronic_s3
+    read_fault_codes: {name: "Read Fault Codes"}
+    # clear_fault_codes (needs the security provider, below)
 ```
 
 Action `hydronic_s3.command`: `run` (start/stop), optional `mode` (`HEAT` | `FAN` | `RESIDUAL`) and
-`lease` (watchdog, e.g. `5min`, `0s` = none); all templatable. Condition `hydronic_s3.commanding`: we
-command "on". Full example: `esphome/example-twai.yaml`.
+`lease` (watchdog, e.g. `5min`, `0s` = none); all templatable. Conditions `hydronic_s3.commanding` (we
+command "on") and `hydronic_s3.burner_on` (starting or heating, polled). Full example with a regulator in
+plain YAML: `esphome/example-twai.yaml`.
 
 ## Controlling the heater
 
@@ -223,19 +228,23 @@ All controls are in the web UI group **Heater Control**.
   heater itself has no timer; the EasyStart runs its own.
 - **Clock**: with `time_id:` on `hydronic_s3` the heater gets our time (`10A`, as the EasyStart's
   time setting).
-- **`on_event:`** (automation on `hydronic_s3`, variables `what`, `from`, `to`): every logged transition
-  (`state`, `phase`, `flags`, `cmd`, `start failed`, ...) plus named ones for a regulator:
-  `burner_starting`, `flame_stable`, `control_pause`, `idle` (from the polled phase, lag up to one poll)
-  and `residual_end` (status frame). E.g. end a burn at the heater's own control pause instead of on a
-  timer (see `esphome/example-twai.yaml`).
+- **Triggers** on `hydronic_s3` (phase-based ones lag up to one `poll_interval`):
+  - **`on_coolant_limit_pause:`** the burner went out because the coolant reached the heater's own upper
+    limit (≈83 °C; straight from heating, no fault flags). Never on reconnect. Abnormal stops do not fire it
+    (they raise a fault code); an overheat without a fault code is untested.
+  - **`on_start_refused:`** the heater held the start (fault flag `0x40`) after all retries; the run is off.
+  - **`on_new_fault_code:`** (variable `code`, e.g. `"P000250"`) a stored fault code that was not in the
+    memory before (read on connect and when the fault flags rise). After a clear, a recurrence fires again.
+  - `on_event:` (every transition, names unstable) needs `research: true`.
 - **Stopping from a regulator** (avoid wasted burner cycles; each start costs glow energy, a fuel
   stroke and soot):
-  1. Turn off at `control_pause`: the loop is fully charged and the burner is already out, so the stop
-     costs nothing and prevents the heater's own restart (~70 °C). The burn has also ended the heater's
-     own way, from minimum fuel rate in a hot chamber, instead of a forced stop at high power.
-  2. Never turn off between `burner_starting` and `flame_stable` (except for safety): that aborts a start.
-  3. After turning off, wait for `idle` (run-down finished, phase `00`) before counting any keep-off
-     time or turning on again; an early request restarts a hot burner (extra purge, phase `0D`).
+  1. Turn off at `on_coolant_limit_pause`, or whenever `hydronic_s3.burner_on` is false: the loop is fully charged
+     and the burner is out, so the stop costs nothing and prevents the heater's own restart (~70 °C).
+     See `esphome/example-twai.yaml`.
+  2. A stop during a start (glow/fuel phase) is deferred by the component until the start is over;
+     the run watchdog too.
+  3. Turning on again during the run-down restarts a hot burner (extra purge, phase `0D`); the component
+     does not prevent it yet.
 - A start hold (fault flag `0x40`) is retried up to three times, then the switch turns off.
 - **S+ wins**: `run: true` is refused (log warning only) while the heater runs on S+; release S+ first.
   A watchdog stops a run, it never restarts a stopped heater.

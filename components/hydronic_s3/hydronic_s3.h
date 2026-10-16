@@ -23,8 +23,24 @@
 #ifdef USE_TIME
 #include "esphome/components/time/real_time_clock.h"
 #endif
+#ifdef USE_SWITCH
+#include "esphome/components/switch/switch.h"
+#endif
+#ifdef USE_SELECT
+#include "esphome/components/select/select.h"
+#endif
+#ifdef USE_NUMBER
+#include "esphome/components/number/number.h"
+#endif
+#ifdef USE_BUTTON
+#include "esphome/components/button/button.h"
+#endif
+#include "esphome/core/preferences.h"
 
 namespace esphome::hydronic_s3 {
+
+class RunSwitch;
+class ModeSelect;
 
 /// Last payload and timing of one CAN ID, as seen on the heater bus.
 struct IdState {
@@ -194,6 +210,19 @@ class HydronicS3 : public Component {
   void abort_command();
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
+  /// Burner starting or heating (FD10 phase, polled); false while unknown.
+  bool burner_on() const;
+  uint8_t command_mode() const { return this->command_mode_; }
+  /// Sweep interval of sensor_dids(); polling starts at boot unless a polling switch decides.
+  void set_poll_interval(uint32_t ms) { this->sensor_poll_ms_ = ms; }
+  uint32_t poll_interval() const { return this->sensor_poll_ms_; }
+#ifdef USE_SWITCH
+  void set_run_switch(RunSwitch *s) { this->run_switch_ = s; }
+  void set_polling_switch(switch_::Switch *s) { this->polling_switch_ = s; }
+#endif
+#ifdef USE_SELECT
+  void set_mode_select(ModeSelect *s) { this->mode_select_ = s; }
+#endif
   /// 054 B1 while "on", as the EasyStart's three modes: MODE_HEAT (burner), MODE_FAN
   /// (vehicle fan only), MODE_RESIDUAL (water pump + vehicle fan, no burner).
   void set_command_mode(uint8_t mode) { this->command_mode_ = mode; }
@@ -223,7 +252,8 @@ class HydronicS3 : public Component {
   const std::map<uint32_t, IdState> &ids() const { return this->ids_; }
   uint32_t frames() const { return this->frames_; }
   /// Every logged transition (what, from, to), plus named ones: burner_starting, flame_stable,
-  /// control_pause, idle (FD10 phase, polled), residual_end (2C4 state C1). Called from loop().
+  /// control_pause, idle (FD10 phase, polled), residual_end (2C4 state C1), coolant_limit_pause,
+  /// start_refused, new_fault_code (to: code). Called from loop().
   template<typename F> void add_on_event_callback(F &&callback) { this->event_callback_.add(std::forward<F>(callback)); }
 
  protected:
@@ -283,7 +313,10 @@ class HydronicS3 : public Component {
   /// Another tester's request on 0x7A0 awaits its answer until then (0: none): the heater
   /// drops a request that overlaps a pending one, so ours wait.
   uint32_t foreign_diag_until_ms_{0};
+  uint32_t diag_quiet_until_ms_{0};  // observer: the control unit's next request goes first
+  uint16_t diag_expect_did_{0};      // DID of our pending 22 request (0: other service)
   bool diag_free_() const;
+  void answered_();
   uint16_t scan_expect_{0};  // id of our pending scan request: another tester's answers are not ours
   void publish_diag_(const std::string &text);
   std::function<bool(bool)> listen_only_hook_;
@@ -314,6 +347,9 @@ class HydronicS3 : public Component {
   void scan_answered_();
   int fault_code_{-1};
   std::string fault_codes_;
+  std::vector<uint32_t> dtc_known_;  // stored codes (3 bytes) since boot, for new_fault_code
+  bool dtc_baseline_{false};         // dtc_known_ read once
+  uint8_t dtc_mask_{0};              // status mask of the pending 19 02
   int phase_{-1};  // FD10 B1, last seen
   float did_inlet_c_{NAN}, did_outlet_c_{NAN};  // FD01, same sweep as FD11 (flow estimate)
   float did_voltage_v_{NAN};                     // FD04 (pump power)
@@ -321,7 +357,17 @@ class HydronicS3 : public Component {
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
   uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0}, fan_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};
+  uint32_t sensor_poll_ms_{5000};
+#ifdef USE_SWITCH
+  RunSwitch *run_switch_{nullptr};
+  switch_::Switch *polling_switch_{nullptr};
+#endif
+#ifdef USE_SELECT
+  ModeSelect *mode_select_{nullptr};
+#endif
   bool command_on_{false};
+  bool stop_deferred_{false};  // stop requested during a start: sent once the start phase ends
+  void deferred_stop_();
   uint8_t command_mode_{MODE_HEAT};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
@@ -402,6 +448,31 @@ class EventTrigger : public Trigger<std::string, int, int> {
   }
 };
 
+/// Fires on events named `what` (see hydronic_s3.cpp: coolant_limit_pause, start_refused).
+class NamedEventTrigger : public Trigger<> {
+ public:
+  NamedEventTrigger(HydronicS3 *parent, const char *what) {
+    parent->add_on_event_callback([this, what](const std::string &w, int, int) {
+      if (w == what)
+        this->trigger();
+    });
+  }
+};
+
+/// on_new_fault_code: a stored fault code that was not in the memory before (code: "P000250").
+class NewFaultCodeTrigger : public Trigger<std::string> {
+ public:
+  explicit NewFaultCodeTrigger(HydronicS3 *parent) {
+    parent->add_on_event_callback([this](const std::string &w, int, int code) {
+      if (w != "new_fault_code")
+        return;
+      char text[8];
+      snprintf(text, sizeof(text), "P%06X", code);
+      this->trigger(text);
+    });
+  }
+};
+
 /// hydronic_s3.command: mode and lease (if given) first, then set_command(run).
 template<typename... Ts> class CommandAction : public Action<Ts...> {
  public:
@@ -421,6 +492,72 @@ template<typename... Ts> class CommandAction : public Action<Ts...> {
  protected:
   HydronicS3 *parent_;
 };
+
+/// hydronic_s3.burner_on: burner_on().
+template<typename... Ts> class BurnerOnCondition : public Condition<Ts...> {
+ public:
+  explicit BurnerOnCondition(HydronicS3 *parent) : parent_(parent) {}
+  bool check(const Ts &...x) override { return this->parent_->burner_on(); }
+
+ protected:
+  HydronicS3 *parent_;
+};
+
+#ifdef USE_SWITCH
+/// "Heater Run": set_command(); reads back command_on() (refusal, back-off, start refused, watchdog).
+class RunSwitch : public switch_::Switch, public Component, public Parented<HydronicS3> {
+ public:
+  void setup() override;
+
+ protected:
+  void write_state(bool state) override;
+};
+
+/// Polling of sensor_dids() at poll_interval.
+class PollingSwitch : public switch_::Switch, public Component, public Parented<HydronicS3> {
+ public:
+  void setup() override;
+
+ protected:
+  void write_state(bool state) override;
+};
+#endif
+
+#ifdef USE_SELECT
+/// What "Heater Run" starts: Heat / Residual heat / Fan, restored. Shows "S+" (read-only) while S+ runs.
+class ModeSelect : public select::Select, public Component, public Parented<HydronicS3> {
+ public:
+  void setup() override;
+  void sync();  // from HydronicS3::loop()
+
+ protected:
+  void control(size_t index) override;
+  ESPPreferenceObject pref_;
+};
+#endif
+
+#ifdef USE_NUMBER
+/// Run watchdog in minutes (set_command_lease), restored; 0 = run until turned off.
+class RunWatchdogNumber : public number::Number, public Component, public Parented<HydronicS3> {
+ public:
+  void setup() override;
+
+ protected:
+  void control(float value) override;
+  ESPPreferenceObject pref_;
+};
+#endif
+
+#ifdef USE_BUTTON
+class ReadFaultCodesButton : public button::Button, public Parented<HydronicS3> {
+ protected:
+  void press_action() override { this->parent_->request_fault_codes(0x08); }
+};
+class ClearFaultCodesButton : public button::Button, public Parented<HydronicS3> {
+ protected:
+  void press_action() override { this->parent_->clear_dtc(); }
+};
+#endif
 
 /// hydronic_s3.commanding: command_on().
 template<typename... Ts> class CommandingCondition : public Condition<Ts...> {

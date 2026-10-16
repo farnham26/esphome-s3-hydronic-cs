@@ -17,20 +17,6 @@ esphome:
         # hydronic_s3 leaves listen-only only for its diagnostic requests.
         - lambda: |-
             id(heater).set_listen_only_hook([](bool listen_only) { return id(heater_can)->set_listen_only(listen_only); });
-        - switch.turn_on: poll_dids
-    - priority: -100
-      then:
-        - lambda: |-
-            {
-              using hydronic_s3::HydronicS3;
-              const int m = id(heater_mode_user);
-              if (m != HydronicS3::MODE_FAN && m != HydronicS3::MODE_RESIDUAL)
-                id(heater_mode_user) = HydronicS3::MODE_HEAT;
-              id(heater).set_command_mode(id(heater_mode_user));
-            }
-            id(heater_mode_sync).execute();
-            if (!std::isnan(id(heater_lease).state))
-              id(heater).set_command_lease(id(heater_lease).state * 60000);
 
 packages:
   board: !include boards/m5stack-fire.yaml
@@ -579,33 +565,21 @@ sensor:
 
 switch:
   # Polls the DIDs behind the DID sensors every 5 s (UDS requests: normal mode).
-  - platform: template
+  - platform: hydronic_s3
+    type: polling
     id: poll_dids
     name: "Poll DIDs"
-    optimistic: true
-    restore_mode: ALWAYS_OFF  # turned on in on_boot, after the listen-only hook
     web_server:
       sorting_group_id: group_debug
-    turn_on_action:
-      - lambda: |-
-          id(heater).start_polling(esphome::hydronic_s3::HydronicS3::sensor_dids(), 5000);
-    turn_off_action:
-      - lambda: "id(heater).stop_polling();"
   # Heater start/stop in place of the EasyStart (which must be off the bus): sends its
   # command set (054-057, 60D) while on; off sends "off" until the heater is idle (run-down).
   # Reads back off when the component backs off (EasyStart frames seen). Off after boot.
-  - platform: template
+  - platform: hydronic_s3
+    type: run
     id: heater_command
     name: "Heater Run"
-    icon: mdi:fire
-    lambda: "return id(heater).command_on();"
-    restore_mode: ALWAYS_OFF
     web_server:
       sorting_group_id: group_control
-    turn_on_action:
-      - hydronic_s3.command: {id: heater, run: true}
-    turn_off_action:
-      - hydronic_s3.command: {id: heater, run: false}
   # Observer: diagnosis only, another control unit (tempcontrol) owns the heater; Heater Run refused.
   - platform: template
     name: "Observer"
@@ -620,47 +594,16 @@ switch:
     turn_off_action:
       - lambda: "id(heater).set_observer(false);"
 
-globals:
-  # "Heater Mode" as chosen (HydronicS3::MODE_*); the select itself shows "S+" while S+ runs.
-  - id: heater_mode_user
-    type: int
-    restore_value: true
-    initial_value: "1"
-
-script:
-  # Shows the chosen mode, or "S+" while the heater runs on S+ (read-only then).
-  - id: heater_mode_sync
-    then:
-      - lambda: |-
-          using hydronic_s3::HydronicS3;
-          const int m = id(heater_mode_user);
-          id(heater_mode).publish_state(id(heater).request_source() == HydronicS3::REQUEST_S_PLUS ? "S+"
-                                        : m == HydronicS3::MODE_RESIDUAL                       ? "Residual heat"
-                                        : m == HydronicS3::MODE_FAN                            ? "Fan"
-                                                                                               : "Heat");
-
 select:
   # What "Heater Run" starts, as the EasyStart's modes: Heat (burner), Residual heat
   # (water pump + vehicle fan, e.g. to spread an electrically heated reservoir), Fan (vehicle fan only).
   # "S+" is display only: shown while S+ runs the heater, no change accepted then.
-  - platform: template
-    id: heater_mode
-    name: "Heater Mode"
-    icon: mdi:tune-variant
-    options: ["Heat", "Residual heat", "Fan", "S+"]
-    optimistic: false
-    web_server:
-      sorting_group_id: group_control
-    set_action:
-      - lambda: |-
-          using hydronic_s3::HydronicS3;
-          if (x != "S+" && id(heater).request_source() != HydronicS3::REQUEST_S_PLUS) {
-            id(heater_mode_user) = x == "Residual heat" ? HydronicS3::MODE_RESIDUAL
-                                   : x == "Fan"         ? HydronicS3::MODE_FAN
-                                                        : HydronicS3::MODE_HEAT;
-            id(heater).set_command_mode(id(heater_mode_user));
-          }
-      - script.execute: heater_mode_sync
+  - platform: hydronic_s3
+    mode:
+      id: heater_mode
+      name: "Heater Mode"
+      web_server:
+        sorting_group_id: group_control
   - platform: logger
     name: "Log Level"
     web_server:
@@ -669,37 +612,22 @@ select:
 number:
   # "Heater Run" watchdog: 0 = run until turned off (default); > 0: turn_on must be
   # repeated within this many minutes, else the heater is stopped.
-  - platform: template
-    id: heater_lease
-    name: "Heater Run Watchdog"
-    icon: mdi:timer-cog-outline
-    unit_of_measurement: min
-    min_value: 0
-    max_value: 600
-    step: 1
-    initial_value: 0
-    optimistic: true
-    restore_value: true
-    web_server:
-      sorting_group_id: group_control
-    set_action:
-      - lambda: "id(heater).set_command_lease(x * 60000);"
+  - platform: hydronic_s3
+    run_watchdog:
+      name: "Heater Run Watchdog"
+      web_server:
+        sorting_group_id: group_control
 button:
-  - platform: template
-    name: "Clear Fault Codes"
-    icon: mdi:delete-sweep-outline
-    web_server:
-      sorting_group_id: group_control
-    on_press:
-      - lambda: "id(heater).clear_dtc();"
-  # Error-memory readout like the EasyStart's (mode handled by the component).
-  - platform: template
-    name: "Read Fault Codes"
-    icon: mdi:clipboard-search-outline
-    web_server:
-      sorting_group_id: group_control
-    on_press:
-      - lambda: "id(heater).request_fault_codes(0x08);"
+  - platform: hydronic_s3
+    clear_fault_codes:
+      name: "Clear Fault Codes"
+      web_server:
+        sorting_group_id: group_control
+    # Error-memory readout like the EasyStart's (mode handled by the component).
+    read_fault_codes:
+      name: "Read Fault Codes"
+      web_server:
+        sorting_group_id: group_control
 
 text_sensor:
   - platform: hydronic_s3
@@ -743,8 +671,6 @@ text_sensor:
       icon: mdi:source-branch
       web_server:
         sorting_group_id: group_heater
-      on_value:
-        - script.execute: heater_mode_sync
     combustion_text:
       name: "Combustion"
       icon: mdi:fire-circle
