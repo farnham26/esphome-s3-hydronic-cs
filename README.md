@@ -207,7 +207,9 @@ Action `hydronic_s3.command`: `run` (start/stop), optional `mode` (`HEAT` | `FAN
 `lease` (watchdog, e.g. `5min`, `0s` = none); all templatable. Conditions `hydronic_s3.commanding` (we
 command "on"), `hydronic_s3.burner_on` (starting or heating, polled), `hydronic_s3.busy` (running or
 run-down: a stop is complete once false; no OTA while true) and `hydronic_s3.mode_active: {mode: RESIDUAL}`
-(the mode the heater runs, from its status frame: verifies a mode change took). Full example with a regulator in
+(the mode the heater runs, from its status frame: verifies a mode change took) and `hydronic_s3.stop_unsafe`
+(a stop could abort a light-off or end a burn; also true while the phase is still unknown and the heater is
+active, so an unknown state never reads as safe). Full example with a regulator in
 plain YAML: `esphome/example-twai.yaml`.
 
 ## Controlling the heater
@@ -240,6 +242,9 @@ All controls are in the web UI group **Heater Control**.
       running), residual heat refused (coolant too cold, never ran): the component releases the run.
     - start refused after all retries, another control unit on the bus, run watchdog: the run is off.
 
+    In C++ (`add_on_event_callback`, event `run_ended`) `from` is the numeric reason, which is API: 1 coolant
+    limit, 2 pause with fault flags, 3 start refused, 4 heater stopped, 5 residual heat ended, 6 other control
+    unit, 7 run watchdog, 8 residual heat refused; new reasons get new numbers.
     A regulator releases its request here (`run: false`) without looking at `reason`. Paths seen on the
     heater so far: residual heat refused; the others are unverified.
   - **`on_new_fault_code:`** (variable `code`, e.g. `"P000250"`) a stored fault code that was not in the

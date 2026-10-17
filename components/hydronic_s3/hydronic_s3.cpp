@@ -113,6 +113,9 @@ static constexpr uint16_t NOT_AVAILABLE = 0xFFFE;
 static constexpr uint32_t CLEAR_STEP_TIMEOUT_MS = 1000;
 enum : uint8_t { CLEAR_IDLE = 0, CLEAR_WAIT_SESSION, CLEAR_WAIT_SEED, CLEAR_WAIT_KEY, CLEAR_WAIT_CLEAR };
 static constexpr uint8_t STATE_FAULT = 0x0B;
+// Phase-based run ends ignored this long after a new "on": the first FD10 answers may still show the
+// previous run (a fresh start goes 00 -> 0F within ~2 s). Status-frame (2C4) ends are not delayed.
+static constexpr uint32_t RUN_START_SETTLE_MS = 3000;
 static constexpr uint32_t STALE_MS = 15000;  // no update for 3 poll sweeps: value unknown
 static constexpr uint32_t COUNTER_POLL_MS = 60000;  // FD17 hour counters (minute resolution)
 static constexpr uint32_t COUNTER_STALE_MS = 3 * COUNTER_POLL_MS;
@@ -534,6 +537,15 @@ const char *HydronicS3::run_end_name(int why) {
 bool HydronicS3::burner_on() const { return start_phase(this->phase_) || this->phase_ == 0x14; }
 
 // Named events on phase entry (also from unknown, -1: after a reconnect the current one fires).
+void HydronicS3::phase_run_end_(int phase) {
+  if (phase == 0xDE && this->command_mode_ != MODE_RESIDUAL)
+    return;  // residual refused: no end of a heat or fan run (stale after a refusal)
+  this->run_ended_(phase != 0xDE        ? RUN_END_HEATER_STOPPED
+                   : this->residual_ran_ ? RUN_END_RESIDUAL
+                                         : RUN_END_RESIDUAL_REFUSED,
+                   phase, true);
+}
+
 void HydronicS3::phase_events_(int from, int to) {
   if (start_phase(to) && !start_phase(from))
     this->event_("burner_starting", from, to, false);
@@ -546,11 +558,12 @@ void HydronicS3::phase_events_(int from, int to) {
     this->run_ended_(this->fault_code_ == 0 ? RUN_END_COOLANT_LIMIT : RUN_END_PAUSE_FAULT, this->fault_code_, false);
   // The heater ended the run itself (blocked, run-down, refused, off): our "on" would stay stuck.
   const bool stopped = to == 0xC8 || to == 0x1E || to == 0xDE || (to == 0x00 && from > 0x00 && !start_phase(from));
-  if (stopped && from != to && this->retry_until_ms_ == 0)
-    this->run_ended_(to != 0xDE        ? RUN_END_HEATER_STOPPED
-                     : this->residual_ran_ ? RUN_END_RESIDUAL
-                                           : RUN_END_RESIDUAL_REFUSED,
-                     to, true);
+  if (stopped && from != to && this->retry_until_ms_ == 0) {
+    if (millis() - this->command_change_ms_ >= RUN_START_SETTLE_MS)
+      this->phase_run_end_(to);
+    else if (to != 0x00)  // C8 / 1E / DE: re-checked on the first FD10 answer after the window
+      this->phase_end_recheck_ = true;
+  }
   if (to == 0x00 && from > 0x00)
     this->event_("idle", from, to, false);
 }
@@ -590,7 +603,9 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       this->event_("state", this->state_, data[0]);
       if (data[0] == 0x81)
         this->residual_ran_ = true;
-      if (data[0] == 0xC1) {  // residual heat ended, or refused (41 -> C1, coolant too cold)
+      // Residual heat ended, or refused (41 -> C1, coolant too cold). Residual runs only: after a refusal the
+      // heater still shows C1 (also at the next wake) while a heat run starts.
+      if (data[0] == 0xC1 && this->command_mode_ == MODE_RESIDUAL) {
         this->event_("residual_end", this->state_, data[0], false);
         this->run_ended_(this->residual_ran_ ? RUN_END_RESIDUAL : RUN_END_RESIDUAL_REFUSED, this->state_, true);
       }
@@ -803,6 +818,7 @@ void HydronicS3::set_command(bool on) {
   if (on) {
     this->run_end_final_ = false;
     this->residual_ran_ = false;
+    this->phase_end_recheck_ = false;
   }
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on, false);
@@ -1546,6 +1562,11 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
             ESP_LOGW(TAG, "unknown phase 0x%02X (FD10: %02X %02X ...)", d[1], d[0], d[1]);
           this->phase_ = d[1];
           this->deferred_stop_();
+        }
+        if (this->phase_end_recheck_ && millis() - this->command_change_ms_ >= RUN_START_SETTLE_MS) {
+          this->phase_end_recheck_ = false;
+          if (this->phase_ == 0xC8 || this->phase_ == 0x1E || this->phase_ == 0xDE)
+            this->phase_run_end_(this->phase_);
         }
         pub(DID_OPERATING_PHASE, d[1]);
         this->update_request_(d[0]);

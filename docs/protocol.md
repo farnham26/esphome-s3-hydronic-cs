@@ -85,7 +85,7 @@ The heater stores but does not execute timers; the EasyStart runs them (this fir
 | `1E` | run-down after switch-off | glow plug afterglow ~45 s |
 | `C8` | blocked | start hold, also after P000307 |
 | `D2` | fan | |
-| `DC` / `DD` / `DE` | residual heat / checking coolant / refused (too cold) | |
+| `DC` / `DD` / `DE` | residual heat / checking coolant / refused (too cold) | floor 47–65 °C checked at the start only: a running residual heat continued to 44.8 °C; also from sleep (0.8 s to `81`) |
 
 Start sub-steps (FD10 B2, timer B3–B4 in 10 ms): `01`–`05` pre-glow (~94 W, no fuel), `06`/`08` fuel on, `09`/`0A`
 blower ramp, `0B` flame, `0E`–`12` glow off ramp, then phase `14` (~100 s after the request, warm start).

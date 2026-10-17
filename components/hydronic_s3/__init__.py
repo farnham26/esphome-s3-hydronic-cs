@@ -33,6 +33,7 @@ CommandAction = hydronic_s3_ns.class_("CommandAction", automation.Action)
 CommandingCondition = hydronic_s3_ns.class_("CommandingCondition", automation.Condition)
 BurnerOnCondition = hydronic_s3_ns.class_("BurnerOnCondition", automation.Condition)
 BusyCondition = hydronic_s3_ns.class_("BusyCondition", automation.Condition)
+StopUnsafeCondition = hydronic_s3_ns.class_("StopUnsafeCondition", automation.Condition)
 ModeActiveCondition = hydronic_s3_ns.class_("ModeActiveCondition", automation.Condition)
 
 # 054 B1, as HydronicS3::MODE_*.
@@ -188,3 +189,13 @@ async def mode_active_to_code(config, condition_id, template_arg, args):
     var = cg.new_Pvariable(condition_id, template_arg, parent)
     cg.add(var.set_mode(await cg.templatable(config[CONF_MODE], args, cg.uint8)))
     return var
+
+
+@automation.register_condition(
+    "hydronic_s3.stop_unsafe",
+    StopUnsafeCondition,
+    automation.maybe_simple_id({cv.GenerateID(): cv.use_id(HydronicS3)}),
+)
+async def stop_unsafe_to_code(config, condition_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(condition_id, template_arg, parent)

@@ -233,6 +233,13 @@ class HydronicS3 : public Component
   bool command_on() const { return this->command_on_; }
   /// Burner starting or heating (FD10 phase, polled); false while unknown.
   bool burner_on() const;
+  /// A stop now could abort a light-off or end a burn: burner_on(), or the phase unknown (after a wake, before
+  /// FD10) while the 100 ms status says active (05). False while idle, fan, residual, asleep or disconnected.
+  bool stop_unsafe() const {
+    return this->connected() && (this->burner_on() || (this->phase_ < 0 && this->state_ == 0x05));
+  }
+  /// FD10 B1, -1 unknown (not yet polled, stale).
+  int phase() const { return this->phase_; }
   uint8_t command_mode() const { return this->command_mode_; }
   /// Why a run we commanded ended (run_ended event, on_run_ended reason).
   enum RunEnd : uint8_t {
@@ -418,6 +425,7 @@ class HydronicS3 : public Component
   uint32_t handover_until_ms_{0};  // run adopted after an OTA reboot: stops wait for the phase
   void deferred_stop_();
   bool run_end_final_{false};  // run_ended for this run already raised (final kinds)
+  bool phase_end_recheck_{false};  // a C8/1E/DE right after "on": confirm on a later FD10 answer
   bool residual_ran_{false};    // state 81 seen since the run (mode) started: a C1 then is an end, else a refusal
   void run_ended_(RunEnd why, int detail, bool stop);
   uint8_t command_mode_{MODE_HEAT};
@@ -462,6 +470,7 @@ class HydronicS3 : public Component
                                                     (this->state_ != 0x00 && this->state_ != 0x03));
   }
   void command_loop_();
+  void phase_run_end_(int phase);
   uint32_t easystart_ms_{0};  // last EasyStart frame, 0: none
   /// Without the EasyStart nobody else acks the heater's frames (it would retry its
   /// first frame forever): listen-only only while an EasyStart was seen recently.
@@ -544,6 +553,16 @@ template<typename... Ts> class CommandAction : public Action<Ts...> {
       this->parent_->set_command_lease(this->lease_.value(x...));
     this->parent_->set_command(this->run_.value(x...));
   }
+
+ protected:
+  HydronicS3 *parent_;
+};
+
+/// hydronic_s3.stop_unsafe: stop_unsafe().
+template<typename... Ts> class StopUnsafeCondition : public Condition<Ts...> {
+ public:
+  explicit StopUnsafeCondition(HydronicS3 *parent) : parent_(parent) {}
+  bool check(const Ts &...x) override { return this->parent_->stop_unsafe(); }
 
  protected:
   HydronicS3 *parent_;

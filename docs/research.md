@@ -629,3 +629,28 @@ resolution), a variable-speed fridge as a constant offset in the window:
   "bus back" restarted the sweep at DID 0 (head of the list ~2.5× too often, tail at half rate; nothing went stale).
   Fix: one ordered TX queue for all frames; only an aborted unacked frame (`ERROR_FAILTX`) counts as bus down.
 - Pump current 1.27 A (33 W at the pump output) with the external DC/DC turned up; flow estimate 513 l/h.
+
+## Regulator runs: pause, hot restart, residual heat (2026-10-17, tempcontrol as control unit, Fire observer)
+- **Regulation** at a constant load: outlet held at 73 °C while power steps down (5.0 → 1.27 kW, metering pump
+  4.2 → 1.4 Hz, the floor). Below the floor the outlet rises ~2 °C/min to the **control pause at 83.0 °C** (twice).
+- **Stop at the pause** (regulator releases at `on_run_ended`, coolant limit): 6 times, `054` off 7–68 ms after
+  FD10 `14→1F`. The `2C4` run-down bit leads the FD10 poll by up to 2.5 s. Then `1F` ≈ 90 s → state `03`, phase
+  `00`, asleep ~30 s later.
+- **Pause sub-phases, command held**: `1F` ≈ 90 s (run-down bit set), then `28` until the coolant is ≈ 70.5 °C,
+  then a warm restart (`28→0C`, sometimes `0F`/`0D` first) without a new wake. Waits in `28`: 2 min 20 s – 6 min
+  45 s (load-dependent, no time limit seen). At low load (inlet 81.0 / outlet 82.6 °C) the burns after a relight
+  last only ~2 min: holding through the pause short-cycles the burner.
+- **Hot restart** from idle (new request, coolant still hot): `00→28` directly, then `0F` (once `0D` purge) → `0C`
+  → `14`. 3 clean; one (15:23, coolant ~72 °C) held at once with flags `0x40` + **P000250** (pump current 0.23 A at
+  the check, normal 1.0–1.6 A since), recovered by the start retry 5 s later. Not reproduced.
+- **Residual heat from sleep**: `054` `01 03` → phase `DC`, state `81` 0.8 s after the wake, coolant 66.6 °C. It ran
+  20 min down to **44.8 °C** without ending (released by the regulator): the 47–65 °C floor is a start condition only.
+- **Residual refused at 42.0 °C** (22:11, from sleep): `41` + `DD` ~5 s → `C1`, as on 10-11. The regulator's
+  immediate heat request was then stopped by the component: the next FD10 answer (`DD→00`, the check ending) read
+  as "heater stopped" for the new run. 22:16 (39.3 °C): the first FD10 after the wake read `DE` (the old refusal)
+  and the state `C1` tail ended the following heat run. Fixed: `C1`/`DE` end residual runs only; phase-based run
+  ends are ignored for 3 s after a new "on" (`C8`/`1E`/`DE` re-checked on the next FD10 answer).
+- **Controller silence mid-run** (controller OTA, 22–26 s): the heater ends the run itself ~14 s into the silence and
+  logs **P000307 + P000440** (5 silences, confirmed by the next fault read 3 times). A 7 s controller
+  reboot logged nothing. Fix on the component side:
+  `ota_keepalive`; or flash only while `busy` is off.
