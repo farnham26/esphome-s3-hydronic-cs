@@ -650,6 +650,12 @@ resolution), a variable-speed fridge as a constant offset in the window:
   as "heater stopped" for the new run. 22:16 (39.3 °C): the first FD10 after the wake read `DE` (the old refusal)
   and the state `C1` tail ended the following heat run. Fixed: `C1`/`DE` end residual runs only; phase-based run
   ends are ignored for 3 s after a new "on" (`C8`/`1E`/`DE` re-checked on the next FD10 answer).
+- **Residual drop-out** (23:37, after 45 min from 66.6 °C): the heater ended it itself at inlet 34.9 / outlet
+  35.0 °C (`DC→DE`, `81→C1`), the first "residual heat ended" seen.
+- **Heat → residual in place** (00:25, `054` B1 01 → 03 at the pause entry, during `1F`): not taken. FD10 B0 → `00`
+  within 15 s (request ended; our revert to 01 after 11 s not taken as a new request); at the end of `1F`: state
+  `03`, flags `0x04` for 0.4 s, phase `C8`, then idle. No DTC stored. Release → sleep → residual request instead:
+  accepted at 75.5 °C (00:33). Rule: change the mode only while stopped.
 - **Controller silence mid-run** (controller OTA, 22–26 s): the heater ends the run itself ~14 s into the silence and
   logs **P000307 + P000440** (5 silences, confirmed by the next fault read 3 times). A 7 s controller
   reboot logged nothing. Fix on the component side:

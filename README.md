@@ -224,7 +224,9 @@ All controls are in the web UI group **Heater Control**.
 
 - **Heater Mode**: what `Heater Run` starts, as the EasyStart's modes — **Heat** (burner), **Residual heat**
   (water pump + vehicle fan, e.g. to spread an electrically heated reservoir through the vehicle) and **Fan** (vehicle fan
-  only). A mode change while running takes effect with the next command frame.
+  only). Change the mode while stopped: heat → residual heat during a control pause made the heater end the
+  run (blocked `C8`, flag `0x04`); stop, wait until `busy` is off, then start the new mode. Fan ↔ residual heat
+  switches while running worked.
 - **Heater Run Watchdog** (minutes): `0` = run until stopped (default). Above 0 the heater is stopped
   unless `turn_on` is repeated within that time, for controllers that should fail safe.
 - **Timers** (web UI group **Timers**, package `esphome/timers.yaml`, optional): three slots like the

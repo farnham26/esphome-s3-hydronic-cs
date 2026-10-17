@@ -1388,8 +1388,9 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
       this->scan_positive_++;
       this->scan_answered_();
     }
-    // Text only for a single request or a range scan: poll answers are decoded into sensors.
-    if (this->single_until_ms_ != 0 || (this->scan_active_ && !this->sweep_)) {
+    // Text for a single request or a range scan; poll answers only with research (raw data for offline
+    // correlation), else they are decoded into sensors only.
+    if (this->research_ || this->single_until_ms_ != 0 || (this->scan_active_ && !this->sweep_)) {
       const size_t data_at = payload[0] == 0x62 ? 3 : payload[0] == 0x71 ? 4 : 2;
       std::string text;
       char buf[8];
