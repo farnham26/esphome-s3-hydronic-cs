@@ -620,6 +620,20 @@ canbus::Error MCP2515::read_message_(RXBn rxbn, struct canbus::CanFrame *frame) 
   return canbus::ERROR_OK;
 }
 
+void MCP2515::loop() {
+  // on_frame triggers: core path (their filter fields are private to Canbus).
+  if (!this->triggers_.empty()) {
+    canbus::Canbus::loop();
+    return;
+  }
+  canbus::CanFrame frame;
+  while (this->read_message(&frame) == canbus::ERROR_OK) {
+    const uint8_t len = std::min<uint8_t>(frame.can_data_length_code, canbus::CAN_MAX_DATA_LENGTH);
+    this->rx_data_.assign(frame.data, frame.data + len);  // no allocation once it held 8 bytes
+    this->callback_manager_(frame.can_id, frame.use_extended_id, frame.remote_transmission_request, this->rx_data_);
+  }
+}
+
 canbus::Error MCP2515::read_message(struct canbus::CanFrame *frame) {
   if (this->rx_queue_ != nullptr)
     return xQueueReceive(this->rx_queue_, frame, 0) == pdTRUE ? canbus::ERROR_OK : canbus::ERROR_NOMSG;

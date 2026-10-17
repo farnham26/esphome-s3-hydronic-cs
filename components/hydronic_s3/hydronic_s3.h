@@ -368,6 +368,7 @@ class HydronicS3 : public Component {
   /// Last update per value source, 0 = none since the last expiry (see expire_stale_()).
   uint32_t status_ms_{0}, command_ms_{0}, heartbeat_ms_{0}, flame_ms_{0}, fan_ms_{0};
   uint32_t did_ms_[DID_SENSOR_COUNT]{};
+  uint32_t counters_ms_{0};  // last sweep with the hour counters (0: due)
   uint32_t sensor_poll_ms_{5000};
 #ifdef USE_SWITCH
   RunSwitch *run_switch_{nullptr};

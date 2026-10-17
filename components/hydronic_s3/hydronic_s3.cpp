@@ -99,6 +99,9 @@ static constexpr uint32_t CLEAR_STEP_TIMEOUT_MS = 1000;
 enum : uint8_t { CLEAR_IDLE = 0, CLEAR_WAIT_SESSION, CLEAR_WAIT_SEED, CLEAR_WAIT_KEY, CLEAR_WAIT_CLEAR };
 static constexpr uint8_t STATE_FAULT = 0x0B;
 static constexpr uint32_t STALE_MS = 15000;  // no update for 3 poll sweeps: value unknown
+static constexpr uint32_t COUNTER_POLL_MS = 60000;  // FD17 hour counters (minute resolution)
+static constexpr uint32_t COUNTER_STALE_MS = 3 * COUNTER_POLL_MS;
+static constexpr uint16_t DID_COUNTERS = 0xFD17;
 static constexpr uint32_t WAKE_SILENCE_MS = 2000;  // bus silent this long: log the wake-up
 static constexpr uint8_t WAKE_TRACE_FRAMES = 40;
 
@@ -286,8 +289,8 @@ void HydronicS3::setup() {
 // stopped) become unknown: NAN / -1 internally, NAN or invalid on the entities.
 void HydronicS3::expire_stale_() {
   const uint32_t now = millis();
-  auto stale = [now](uint32_t &ms) {
-    if (ms == 0 || now - ms < STALE_MS)
+  auto stale = [now](uint32_t &ms, uint32_t timeout = STALE_MS) {
+    if (ms == 0 || now - ms < timeout)
       return false;
     ms = 0;
     return true;
@@ -297,6 +300,7 @@ void HydronicS3::expire_stale_() {
     this->event_("connected", 1, 0);
     // Re-read the identification on reconnect: it may be another heater.
     this->ident_dids_ = {0xF193, 0xF195, 0xF1F0, 0xF1F5};
+    this->counters_ms_ = 0;
     this->isotp_len_ = 0;
     // Listen-only while the heater is away: do not ack (and so alter) a wake-up by
     // another node, and do not wake the heater with our requests.
@@ -343,7 +347,8 @@ void HydronicS3::expire_stale_() {
 #endif
 #ifdef USE_SENSOR
   for (size_t i = 0; i < DID_SENSOR_COUNT; i++) {
-    if (!stale(this->did_ms_[i]))
+    const bool counter = i >= DID_HOURS_TOTAL && i <= DID_HOURS_ALTITUDE;
+    if (!stale(this->did_ms_[i], counter ? COUNTER_STALE_MS : STALE_MS))
       continue;
     if (this->did_sensors_[i] != nullptr)
       this->did_sensors_[i]->publish_state(NAN);
@@ -581,6 +586,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
       // Flags only say "held/fault": fetch the stored codes (the EasyStart reads its own).
       if (data[2] != 0 && this->fault_code_ <= 0 && !this->easystart_present_())
         this->request_fault_codes(0x08);
+      const bool had_flags = this->fault_code_ > 0;
       this->fault_code_ = data[2];
       std::string text = "OK";
       if (this->fault_code_ != 0) {
@@ -589,7 +595,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
         snprintf(code, sizeof(code), "flags 0x%02X", this->fault_code_);
         text = code;
         ESP_LOGW(TAG, "%s", code);
-      } else {
+      } else if (had_flags) {
         ESP_LOGI(TAG, "flags cleared");
       }
 #ifdef USE_TEXT_SENSOR
@@ -978,11 +984,19 @@ void HydronicS3::loop() {
     this->scan_service_ = 0x22;
     this->poll_index_ = 0;
     this->scan_next_ = 0;
-    this->sweep_dids_ = this->poll_dids_;
+    const bool counters = this->counters_ms_ == 0 || millis() - this->counters_ms_ >= COUNTER_POLL_MS;
+    this->sweep_dids_.clear();
+    for (uint16_t did : this->poll_dids_)
+      if (did != DID_COUNTERS || counters)
+        this->sweep_dids_.push_back(did);
+    if (counters)
+      this->counters_ms_ = millis();
     this->sweep_dids_.insert(this->sweep_dids_.end(), this->ident_dids_.begin(), this->ident_dids_.end());
-    this->scan_last_ = this->sweep_dids_.size() - 1;
-    this->scan_awaiting_ = false;
-    this->scan_active_ = this->sweep_ = true;
+    if (!this->sweep_dids_.empty()) {
+      this->scan_last_ = this->sweep_dids_.size() - 1;
+      this->scan_awaiting_ = false;
+      this->scan_active_ = this->sweep_ = true;
+    }
   }
   if (this->single_until_ms_ != 0 && static_cast<int32_t>(millis() - this->single_until_ms_) >= 0) {
     this->single_until_ms_ = 0;
@@ -1245,23 +1259,6 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
   if ((payload.size() >= 3 && payload[0] == 0x62) || (payload.size() >= 2 && payload[0] == 0x61) ||
       (payload.size() >= 4 && payload[0] == 0x71)) {
     // Positive response: 62 <DID hi lo> data (22), 61 <local id> data (21) or 71 <sub> <routine hi lo> data (31).
-    const size_t data_at = payload[0] == 0x62 ? 3 : payload[0] == 0x71 ? 4 : 2;
-    std::string text;
-    char buf[8];
-    if (payload[0] == 0x62)
-      snprintf(buf, sizeof(buf), "%02X%02X:", payload[1], payload[2]);
-    else if (payload[0] == 0x71)
-      snprintf(buf, sizeof(buf), "R%02X%02X:", payload[2], payload[3]);
-    else
-      snprintf(buf, sizeof(buf), "L%02X:", payload[1]);
-    text = buf;
-    std::string ascii;
-    for (size_t i = data_at; i < payload.size(); i++) {
-      snprintf(buf, sizeof(buf), " %02X", payload[i]);
-      text += buf;
-      ascii += payload[i] >= 0x20 && payload[i] < 0x7F ? static_cast<char>(payload[i]) : '.';
-    }
-    text += " '" + ascii + "'";
     if (payload[0] == 0x62)
       this->decode_did_(payload[1] << 8 | payload[2], payload.data() + 3, payload.size() - 3);
     // Ours only if it answers our pending scan request (another tester's answers decode as well).
@@ -1272,7 +1269,27 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
       this->scan_positive_++;
       this->scan_answered_();
     }
-    this->publish_diag_(text);
+    // Text only for a single request or a range scan: poll answers are decoded into sensors.
+    if (this->single_until_ms_ != 0 || (this->scan_active_ && !this->sweep_)) {
+      const size_t data_at = payload[0] == 0x62 ? 3 : payload[0] == 0x71 ? 4 : 2;
+      std::string text;
+      char buf[8];
+      if (payload[0] == 0x62)
+        snprintf(buf, sizeof(buf), "%02X%02X:", payload[1], payload[2]);
+      else if (payload[0] == 0x71)
+        snprintf(buf, sizeof(buf), "R%02X%02X:", payload[2], payload[3]);
+      else
+        snprintf(buf, sizeof(buf), "L%02X:", payload[1]);
+      text = buf;
+      std::string ascii;
+      for (size_t i = data_at; i < payload.size(); i++) {
+        snprintf(buf, sizeof(buf), " %02X", payload[i]);
+        text += buf;
+        ascii += payload[i] >= 0x20 && payload[i] < 0x7F ? static_cast<char>(payload[i]) : '.';
+      }
+      text += " '" + ascii + "'";
+      this->publish_diag_(text);
+    }
     return;
   }
   // A single request's negative answer; one for a pending scan request belongs to the scan.
@@ -1368,10 +1385,12 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
   }
   auto u16 = [d](size_t i) { return static_cast<uint16_t>(d[i] << 8 | d[i + 1]); };
 #ifdef USE_SENSOR
+  // Unchanged values are not republished: each publish is an API message to every subscriber.
   auto pub = [this](DidSensor which, float value) {
     this->did_ms_[which] = millis();
-    if (this->did_sensors_[which] != nullptr)
-      this->did_sensors_[which]->publish_state(value);
+    sensor::Sensor *s = this->did_sensors_[which];
+    if (s != nullptr && !(s->has_state() && s->get_raw_state() == value))
+      s->publish_state(value);
   };
   switch (did) {
     case 0xFD01:
@@ -1483,7 +1502,7 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
           pub(DID_WATER_PUMP_POWER, d[21] / 100.0f * this->did_voltage_v_);
       }
       break;
-    case 0xFD17:
+    case DID_COUNTERS:
       for (size_t i = 0; i < 7 && i * 4 + 4 <= n; i++) {
         const uint32_t minutes = static_cast<uint32_t>(u16(i * 4)) << 16 | u16(i * 4 + 2);
         pub(static_cast<DidSensor>(DID_HOURS_TOTAL + i), minutes / 60.0f);

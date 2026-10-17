@@ -91,6 +91,8 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   /// Most frames ever waiting in the RX queue.
   uint32_t queue_high_water() const { return this->queue_high_water_; }
   uint32_t frames_read() const { return this->frames_read_; }
+  /// Canbus::loop() on one reused buffer (the core builds a vector per frame).
+  void loop() override;
   /// Snapshot of the controller state, for diagnosing a stalled reader or a faulty bus.
   void read_diag(uint8_t &intf, uint8_t &eflg, uint8_t &rec, uint8_t &tec, bool &int_low);
   /// Worst INT-edge-to-reader-wake latency and drain duration since the last call, in us.
@@ -162,6 +164,7 @@ class MCP2515 final : public canbus::Canbus, public SPIBase {
   bool read_rx_buffer_(RXBn rxbn, canbus::CanFrame *frame);
 
   InternalGPIOPin *interrupt_pin_{nullptr};
+  std::vector<uint8_t> rx_data_;  // loop(): payload handed to the callbacks
   uint16_t rx_queue_len_{256};
   TaskHandle_t reader_task_handle_{nullptr};
   QueueHandle_t rx_queue_{nullptr};
