@@ -263,9 +263,11 @@ All controls are in the web UI group **Heater Control**.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).
 - **OTA while the heater is busy**: the upload blocks the main loop for 10-20 s, and more than ~15 s of
-  silence logs P000307 + P000440. With `ota_keepalive: true` the component stops the run at the OTA start
-  (also during a start), a task keeps sending the controller frames during the upload, and the new image
-  keeps talking "off" after the reboot until the heater is idle. Without it, flash only while `busy` is off.
+  silence logs P000307 + P000440. With `ota_keepalive: true` a task keeps sending the controller frames
+  during the upload with the command unchanged (no stop: a start is never aborted), and the new image
+  continues that command after the reboot. A stop at boot (e.g. a run switch restoring off) waits until
+  the phase is known, so the usual rule holds: no stop during a start. Without it, flash only while
+  `busy` is off.
 - **Read Fault Codes** / **Clear Fault Codes** (buttons): the error memory as the EasyStart's workshop
   menu shows and deletes it (code list: [`docs/dtc.md`](docs/dtc.md)). Clearing needs a SecurityAccess
   key that is not in this repo; register it with `set_security_provider()` from a local config (below).

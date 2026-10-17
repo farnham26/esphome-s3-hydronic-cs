@@ -220,11 +220,13 @@ class HydronicS3 : public Component
   /// (false, continued while the heater runs down). Backs off for good as soon as an
   /// EasyStart frame appears: never two controllers on the bus. Normal mode meanwhile.
   /// "On" is refused while the heater runs on S+ (request_source() == REQUEST_S_PLUS).
-  /// force: also during a start (no deferral), e.g. before an OTA.
-  void set_command(bool on, bool force = false);
+  void set_command(bool on);
   /// Watchdog: "on" stops (with "off") unless set_command(true) renews it within this
   /// time. 0: no watchdog, run until set_command(false).
-  void set_command_lease(uint32_t ms) { this->command_lease_ms_ = ms; }
+  void set_command_lease(uint32_t ms) {
+    this->command_lease_ms_ = ms;
+    this->command_deadline_ms_ = millis() + ms;  // a change renews a running lease
+  }
   /// Research: stops sending at once, without "off" (controller loss).
   void abort_command();
   /// Start requested and not backed off.
@@ -296,6 +298,7 @@ class HydronicS3 : public Component
   // OTA keep-alive: frames from a task while the main loop is blocked by the upload.
   void *keepalive_task_{nullptr};
   std::atomic<bool> keepalive_stop_{false};
+  uint8_t keepalive_command_[2]{};  // 054 B0/B1 at the OTA start, held
   static void keepalive_task_fn_(void *arg);
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
@@ -403,6 +406,7 @@ class HydronicS3 : public Component
 #endif
   bool command_on_{false};
   bool stop_deferred_{false};  // stop requested during a start: sent once the start phase ends
+  uint32_t handover_until_ms_{0};  // run adopted after an OTA reboot: stops wait for the phase
   void deferred_stop_();
   bool run_end_final_{false};  // run_ended for this run already raised (final kinds)
   void run_ended_(RunEnd why, int detail, bool stop);
@@ -550,6 +554,8 @@ template<typename... Ts> class BurnerOnCondition : public Condition<Ts...> {
 class RunSwitch : public switch_::Switch, public Component, public Parented<HydronicS3> {
  public:
   void setup() override;
+  // After the parent: its setup adopts a run held over an OTA reboot, which a restored "off" must see.
+  float get_setup_priority() const override { return setup_priority::DATA - 1.0f; }
 
  protected:
   void write_state(bool state) override;

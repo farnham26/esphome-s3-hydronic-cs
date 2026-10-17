@@ -47,7 +47,11 @@ static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;
 #ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
 // Survives the software reboot after an OTA (not a power cycle): the new image continues "off".
 static constexpr uint32_t OTA_HANDOVER_MAGIC = 0x48534F54;
-RTC_NOINIT_ATTR static uint32_t ota_handover;
+struct OtaHandover {
+  uint32_t magic;
+  uint8_t on, mode;
+};
+RTC_NOINIT_ATTR static OtaHandover ota_handover;
 #endif
 static constexpr uint32_t REQUEST_SETTLE_MS = 1000;  // FD10 B0 follows our command within ~0.2 s  // 065, as the EasyStart after a wake
 // EasyStart configuration burst, sent 4x (~150 ms apart) ~2 s after its power-up;
@@ -266,12 +270,19 @@ void HydronicS3::setup() {
 #ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
   if (this->ota_keepalive_) {
     ota::get_global_ota_callback()->add_global_state_listener(this);
-    if (ota_handover == OTA_HANDOVER_MAGIC && esp_reset_reason() == ESP_RST_SW) {
-      // Rebooted by our OTA with the heater busy: keep talking "off" until it is idle.
-      ESP_LOGI(TAG, "OTA handover: command off until the heater is idle");
-      this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+    if (ota_handover.magic == OTA_HANDOVER_MAGIC && esp_reset_reason() == ESP_RST_SW) {
+      // Rebooted by our OTA with the heater busy: continue the command held during the upload.
+      ESP_LOGI(TAG, "OTA handover: command %s", ota_handover.on ? "ON" : "OFF");
+      if (ota_handover.on) {
+        this->command_on_ = true;
+        this->command_mode_ = ota_handover.mode;
+        this->command_deadline_ms_ = millis() + this->command_lease_ms_;
+        this->handover_until_ms_ = millis() + STALE_MS;
+      } else {
+        this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+      }
     }
-    ota_handover = 0;
+    ota_handover.magic = 0;
   }
 #endif
   this->canbus_->add_callback([this](uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data) {
@@ -749,7 +760,7 @@ void HydronicS3::update_mode_() {
   this->set_listen_only_(!normal);
 }
 
-void HydronicS3::set_command(bool on, bool force) {
+void HydronicS3::set_command(bool on) {
   if (this->observer_) {
     ESP_LOGW(TAG, "observer: command %s refused", on ? "ON" : "OFF");
     return;
@@ -764,9 +775,12 @@ void HydronicS3::set_command(bool on, bool force) {
   if (!on && !this->commanding_())
     return;
   // Never abort a start (fuel stroke, soot): stop once glow/fuel is over (deferred_stop_()).
-  if (!on && !force && this->command_on_ && (this->phase_ == 0x0A || this->phase_ == 0x0C)) {
+  // A run adopted after an OTA reboot: wait for the phase (a start may be under way).
+  const bool adopting = this->handover_until_ms_ != 0 && this->phase_ < 0 &&
+                        static_cast<int32_t>(millis() - this->handover_until_ms_) < 0;
+  if (!on && this->command_on_ && (adopting || this->phase_ == 0x0A || this->phase_ == 0x0C)) {
     if (!this->stop_deferred_)
-      ESP_LOGI(TAG, "command OFF deferred: burner starting");
+      ESP_LOGI(TAG, "command OFF deferred: %s", adopting ? "phase unknown after OTA" : "burner starting");
     this->stop_deferred_ = true;
     return;
   }
@@ -827,6 +841,7 @@ void HydronicS3::abort_command() {
 
 void HydronicS3::command_loop_() {
   const uint32_t now = millis();
+  this->deferred_stop_();
   // "Off" continues while the heater is busy (run-down, active): it expects its
   // controller to keep talking, else P000307 (CAN communication error control unit)
   // ~15 s after silence. Ends COMMAND_OFF_MS after it is idle or asleep.
@@ -880,15 +895,19 @@ void HydronicS3::command_loop_() {
 
 #ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
 // The upload blocks the main loop for 10-20 s; the heater logs P000307 + P000440 after ~15 s
-// without its controller. Stop the run and send the controller frames from a task instead.
+// without its controller. A task sends the controller frames meanwhile, with the command as it
+// was (never a stop here: a start would be aborted); the new image continues it.
 void HydronicS3::on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
   if (state == ota::OTA_STARTED) {
     if (this->observer_ || this->easystart_present_() || !(this->commanding_() || this->heater_busy()))
       return;
-    ESP_LOGW(TAG, "OTA with the heater busy: command off, keep-alive until the reboot");
-    this->set_command(false, true);
-    this->command_until_ms_ = millis() + COMMAND_OFF_MS;
-    ota_handover = OTA_HANDOVER_MAGIC;
+    const bool on = this->command_on_ && this->state_ > 0x00 && this->retry_until_ms_ == 0;
+    this->keepalive_command_[0] = on ? 0x01 : 0x00;
+    this->keepalive_command_[1] = on ? this->command_mode_ : 0x00;
+    ESP_LOGW(TAG, "OTA with the heater busy: keep-alive (command %s) until the reboot", on ? "ON" : "OFF");
+    if (!this->command_on_)
+      this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+    ota_handover = {OTA_HANDOVER_MAGIC, this->command_on_, this->command_mode_};
     this->keepalive_stop_ = false;
     if (this->keepalive_task_ == nullptr)
       xTaskCreate(keepalive_task_fn_, "hs3_keepalive", 3072, this, 5, reinterpret_cast<TaskHandle_t *>(&this->keepalive_task_));
@@ -896,15 +915,17 @@ void HydronicS3::on_ota_global_state(ota::OTAState state, float progress, uint8_
     if (this->keepalive_task_ == nullptr)
       return;
     this->keepalive_stop_ = true;  // the task ends itself; the main loop sends again
-    ota_handover = 0;
-    this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+    ota_handover.magic = 0;
+    if (!this->command_on_)
+      this->command_until_ms_ = millis() + COMMAND_OFF_MS;
   }
 }
 
-// Off command set (200 ms), keep-alive (100 ms) and controller status (3 s), as command_loop_().
+// Command set as held (200 ms), keep-alive (100 ms) and controller status (3 s), as command_loop_().
 void HydronicS3::keepalive_task_fn_(void *arg) {
   auto *self = static_cast<HydronicS3 *>(arg);
-  static const uint8_t OFF[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  const uint8_t command[8] = {self->keepalive_command_[0], self->keepalive_command_[1], 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
   static const uint8_t SETPOINT[8] = {0x10, 0x27, 0, 0, 0, 0, 0, 0};
   auto send = [self](uint32_t id, const uint8_t *data) {
     self->canbus_->send_data(id, false, std::vector<uint8_t>(data, data + 8));  // errors: next tick
@@ -912,10 +933,10 @@ void HydronicS3::keepalive_task_fn_(void *arg) {
   for (uint32_t tick = 0; !self->keepalive_stop_; tick++) {
     send(ID_KEEPALIVE, self->keepalive_data_);
     if (tick % (COMMAND_PERIOD_MS / KEEPALIVE_PERIOD_MS) == 0) {
-      send(ID_COMMAND, OFF);
+      send(ID_COMMAND, command);
       send(0x055, SETPOINT);
       send(0x056, SETPOINT);
-      send(0x057, OFF);
+      send(0x057, TAIL);
     }
     if (tick % (CONTROLLER_PERIOD_MS / KEEPALIVE_PERIOD_MS) == 0)
       send(ID_CONTROLLER_STATUS, self->controller_data_);
