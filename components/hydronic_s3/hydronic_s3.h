@@ -275,7 +275,7 @@ class HydronicS3 : public Component {
   bool observer_{false};
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
-  void event_(const char *what, int from, int to);
+  void event_(const char *what, int from, int to, bool log = true);
   void phase_events_(int from, int to);
   struct PendingEvent {
     const char *what;  // string literal

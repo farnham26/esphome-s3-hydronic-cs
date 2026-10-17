@@ -387,7 +387,7 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     char ev[48];
     snprintf(ev, sizeof(ev), "%u.%03u wake %03" PRIX32 " after %u s", (unsigned) (now / 1000), (unsigned) (now % 1000),
              can_id, this->frames_ == 1 ? 0u : (unsigned) ((now - this->last_frame_ms_) / 1000));
-    ESP_LOGI(TAG, "event %s", ev);
+    ESP_LOGI(TAG, "event %s", strchr(ev, ' ') + 1);
 #ifdef USE_TEXT_SENSOR
     if (this->event_text_ != nullptr)
       this->event_text_->publish_state(ev);
@@ -437,8 +437,8 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
   if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->controller_data_);
   if (easystart && this->commanding_()) {
-    ESP_LOGW(TAG, "control unit frame %03" PRIX32 " seen: command stopped", can_id);
-    this->event_("cmd backoff", can_id, 0);
+    ESP_LOGW(TAG, "other control unit (%03" PRIX32 "): command off", can_id);
+    this->event_("cmd backoff", can_id, 0, false);
     this->run_ended_(RUN_END_OTHER_CONTROL_UNIT, can_id, false);
     this->command_on_ = false;
     this->command_change_ms_ = millis();
@@ -452,11 +452,13 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
 
 // Transitions with the device time, as one entity state each: entity updates
 // reach HA reliably where log lines are dropped on a weak link.
-void HydronicS3::event_(const char *what, int from, int to) {
+// log: false where a dedicated line already says it.
+void HydronicS3::event_(const char *what, int from, int to, bool log) {
   char buf[48];
   snprintf(buf, sizeof(buf), "%u.%03u %s %02X->%02X", (unsigned) (millis() / 1000), (unsigned) (millis() % 1000), what,
            from & 0xFFFF, to & 0xFFFF);
-  ESP_LOGI(TAG, "event %s", buf);
+  if (log)
+    ESP_LOGI(TAG, "event %s", strchr(buf, ' ') + 1);
 #ifdef USE_TEXT_SENSOR
   if (this->event_text_ != nullptr)
     this->event_text_->publish_state(buf);
@@ -494,11 +496,11 @@ bool HydronicS3::burner_on() const { return start_phase(this->phase_) || this->p
 // Named events on phase entry (also from unknown, -1: after a reconnect the current one fires).
 void HydronicS3::phase_events_(int from, int to) {
   if (start_phase(to) && !start_phase(from))
-    this->event_("burner_starting", from, to);
+    this->event_("burner_starting", from, to, false);
   if (to == 0x14 && from != 0x14)  // glow off, regulating
-    this->event_("flame_stable", from, to);
+    this->event_("flame_stable", from, to, false);
   if (pause_phase(to) && !pause_phase(from))
-    this->event_("control_pause", from, to);
+    this->event_("control_pause", from, to, false);
   // End of a burn straight from heating: the heater restarts at ~71 °C while the run stays on.
   if (pause_phase(to) && from == 0x14)
     this->run_ended_(this->fault_code_ == 0 ? RUN_END_COOLANT_LIMIT : RUN_END_PAUSE_FAULT, this->fault_code_, false);
@@ -507,14 +509,13 @@ void HydronicS3::phase_events_(int from, int to) {
   if (stopped && from != to && this->retry_until_ms_ == 0)
     this->run_ended_(RUN_END_HEATER_STOPPED, to, true);
   if (to == 0x00 && from > 0x00)
-    this->event_("idle", from, to);
+    this->event_("idle", from, to, false);
 }
 
 void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   if (can_id == ID_STATUS && data.size() >= 6) {
     const bool woke = this->status_ms_ == 0;
     if (woke) {
-      ESP_LOGI(TAG, "heater connected");
       this->event_("connected", 0, 1);
       this->poll_next_ms_ = millis();  // mode: by the state change below
       if (!this->dtc_baseline_ && !this->easystart_present_())
@@ -545,14 +546,12 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     if (data[0] != this->state_) {
       this->event_("state", this->state_, data[0]);
       if (data[0] == 0xC1) {  // residual heat ended or refused (coolant too cold)
-        this->event_("residual_end", this->state_, data[0]);
+        this->event_("residual_end", this->state_, data[0], false);
         this->run_ended_(RUN_END_RESIDUAL, data[0], true);
       }
       this->state_ = data[0];
       this->idle_sweeps_ = IDLE_SWEEPS;
       this->update_mode_();
-      const char *name = state_name(this->state_);
-      ESP_LOGD(TAG, "state 0x%02X (%s)", this->state_, name != nullptr ? name : "unknown");
 #ifdef USE_SENSOR
       if (this->state_code_ != nullptr)
         this->state_code_->publish_state(this->state_);
@@ -572,14 +571,13 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
         this->start_retries_++;
         this->retry_until_ms_ = millis() + RETRY_OFF_MS;
         ESP_LOGW(TAG, "start hold: retry %u of %u", this->start_retries_, START_RETRIES);
-        this->event_("start retry", this->start_retries_ - 1, this->start_retries_);
+        this->event_("start retry", this->start_retries_ - 1, this->start_retries_, false);
       } else {
-        ESP_LOGW(TAG, "start hold after %u retries: command off", START_RETRIES);
         this->run_ended_(RUN_END_START_REFUSED, START_RETRIES, true);
       }
     }
     if (data[2] != this->fault_code_) {
-      this->event_("flags", this->fault_code_, data[2]);
+      this->event_("flags", this->fault_code_, data[2], false);
       // Flags only say "held/fault": fetch the stored codes (the EasyStart reads its own).
       if (data[2] != 0 && this->fault_code_ <= 0 && !this->easystart_present_())
         this->request_fault_codes(0x08);
@@ -591,6 +589,8 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
         snprintf(code, sizeof(code), "flags 0x%02X", this->fault_code_);
         text = code;
         ESP_LOGW(TAG, "%s", code);
+      } else {
+        ESP_LOGI(TAG, "flags cleared");
       }
 #ifdef USE_TEXT_SENSOR
       if (this->fault_text_ != nullptr)
@@ -602,7 +602,7 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
   } else if (can_id == ID_HEARTBEAT && data.size() >= 2) {
     this->heartbeat_ms_ = millis();
     if (data[1] != this->switch_input_raw_) {
-      this->event_("request", this->switch_input_raw_, data[1]);
+      this->event_("switch_input", this->switch_input_raw_, data[1]);
       this->switch_input_raw_ = data[1];
     }
   } else if (can_id == ID_COMMAND && data.size() >= 2) {
@@ -658,7 +658,7 @@ void HydronicS3::send_uds_request(const std::string &hex) {
   this->diag_requested_ = true;
   this->single_until_ms_ = millis() + 3000;
   this->send_diag_(frame);
-  ESP_LOGI(TAG, "UDS request %s queued", hex.c_str());
+  ESP_LOGD(TAG, "UDS request %s queued", hex.c_str());
 }
 
 void HydronicS3::start_polling(std::vector<uint16_t> dids, uint32_t interval_ms) {
@@ -729,7 +729,7 @@ void HydronicS3::set_command(bool on) {
   // S+ wins: the heater ignores a CAN "on" during an S+ run and stops at S+ off (10-11 18:04).
   if (on && !this->command_on_ && this->request_source_ == REQUEST_S_PLUS) {
     ESP_LOGW(TAG, "S+ requested: command ON refused");
-    this->event_("cmd refused", 0, 1);
+    this->event_("cmd refused", 0, 1, false);
     return;
   }
   // Nothing to stop (e.g. a switch's turn_off at boot): no "off" set, which would wake a sleeping bus.
@@ -754,7 +754,7 @@ void HydronicS3::set_command(bool on) {
   if (on)
     this->run_end_final_ = false;
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
-  this->event_("cmd", this->command_on_, on);
+  this->event_("cmd", this->command_on_, on, false);
   this->command_on_ = on;
   this->command_change_ms_ = millis();
   this->command_until_ms_ = on ? 0 : millis() + COMMAND_OFF_MS;
@@ -774,11 +774,13 @@ void HydronicS3::run_ended_(RunEnd why, int detail, bool stop) {
       return;
     this->run_end_final_ = true;
   }
-  this->event_("run_ended", why, detail);
-  if (stop) {
-    ESP_LOGW(TAG, "run ended by the heater (%d, 0x%02X): command off", why, detail);
+  this->event_("run_ended", why, detail, false);
+  if (why == RUN_END_COOLANT_LIMIT)
+    ESP_LOGI(TAG, "run ended: %s", run_end_name(why));
+  else if (why != RUN_END_OTHER_CONTROL_UNIT)  // back-off: its own line
+    ESP_LOGW(TAG, "run ended: %s (0x%02X)%s", run_end_name(why), detail, stop ? ", command off" : "");
+  if (stop)
     this->set_command(false);
-  }
 }
 
 void HydronicS3::deferred_stop_() {
@@ -788,7 +790,7 @@ void HydronicS3::deferred_stop_() {
 
 void HydronicS3::abort_command() {
   ESP_LOGW(TAG, "command aborted silently (research)");
-  this->event_("cmd abort", this->command_on_, 0);
+  this->event_("cmd abort", this->command_on_, 0, false);
   this->command_on_ = false;
   this->command_change_ms_ = millis();
   this->command_until_ms_ = 0;
@@ -805,8 +807,6 @@ void HydronicS3::command_loop_() {
     this->command_until_ms_ = now + COMMAND_OFF_MS;
   if (this->command_on_ && this->command_lease_ms_ != 0 &&
       static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
-    if (!this->stop_deferred_)
-      ESP_LOGW(TAG, "run watchdog expired: off");
     this->run_ended_(RUN_END_WATCHDOG, 0, false);
     this->set_command(false);
   }
@@ -838,7 +838,7 @@ void HydronicS3::command_loop_() {
   const bool ready = this->state_ > 0x00;
   if (this->retry_until_ms_ != 0 && static_cast<int32_t>(now - this->retry_until_ms_) >= 0) {
     this->retry_until_ms_ = 0;
-    ESP_LOGI(TAG, "start retry %u: on", this->start_retries_);
+    ESP_LOGD(TAG, "start retry %u: on", this->start_retries_);
   }
   const bool on = this->command_on_ && ready && this->retry_until_ms_ == 0;
   const uint8_t command[8] = {on ? uint8_t(0x01) : uint8_t(0x00), on ? this->command_mode_ : uint8_t(0x00),
@@ -920,7 +920,7 @@ void HydronicS3::burst_loop_() {
   }
   this->burst_due_ms_ = 0;
   this->burst_sent_ = true;
-  ESP_LOGI(TAG, "config burst sent");
+  ESP_LOGD(TAG, "config burst sent");
 }
 
 // 10A as the EasyStart sends it after its time setting (decoded 10-11):
@@ -1057,7 +1057,7 @@ void HydronicS3::send_failed_() {
     this->update_mode_();
     this->publish_diag_("scan aborted: send failed");
   } else if (this->polling_ && !this->tx_down_) {
-    ESP_LOGW(TAG, "send failed, polling paused until frames are received");
+    ESP_LOGW(TAG, "send failed: polling paused until frames are received");
   }
   this->tx_down_ = true;
 }
@@ -1092,7 +1092,7 @@ void HydronicS3::request_fault_codes(uint8_t status_mask) {
   this->dtc_mask_ = status_mask;
   const std::vector<uint8_t> req{0x03, 0x19, 0x02, status_mask, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD, ISOTP_PAD};
   this->send_diag_(req);
-  ESP_LOGI(TAG, "fault code request (mask %02X) queued", status_mask);
+  ESP_LOGD(TAG, "fault code request (mask %02X) queued", status_mask);
 }
 
 void HydronicS3::clear_dtc() {
@@ -1126,7 +1126,7 @@ void HydronicS3::clear_send_(const std::vector<uint8_t> &payload) {
 }
 
 void HydronicS3::clear_abort_(const char *why) {
-  ESP_LOGE(TAG, "DTC clear aborted (step %u): %s", this->clear_step_, why);
+  ESP_LOGW(TAG, "DTC clear aborted (step %u): %s", this->clear_step_, why);
   this->publish_diag_(std::string("DTC clear aborted: ") + why);
   this->clear_step_ = CLEAR_IDLE;
 }
@@ -1178,7 +1178,7 @@ void HydronicS3::clear_step_response_(const std::vector<uint8_t> &payload) {
         return;
       }
       this->clear_step_ = CLEAR_IDLE;
-      ESP_LOGW(TAG, "DTC error memory cleared");
+      ESP_LOGI(TAG, "DTC error memory cleared");
       this->publish_diag_("DTC error memory cleared");
       this->request_fault_codes(0x08);  // refresh the fault-codes sensor
       return;
@@ -1326,8 +1326,10 @@ void HydronicS3::uds_(const std::vector<uint8_t> &payload) {
   this->fault_codes_ = text;
   if (this->dtc_mask_ == 0x08) {  // the same selection as the baseline
     for (uint32_t c : codes)
-      if (this->dtc_baseline_ && std::find(this->dtc_known_.begin(), this->dtc_known_.end(), c) == this->dtc_known_.end())
-        this->event_("new_fault_code", 0, c);
+      if (this->dtc_baseline_ && std::find(this->dtc_known_.begin(), this->dtc_known_.end(), c) == this->dtc_known_.end()) {
+        ESP_LOGW(TAG, "new fault code P%06" PRIX32, c);
+        this->event_("new_fault_code", 0, c, false);
+      }
     this->dtc_known_ = codes;  // shrinks after a clear: a recurrence is new again
     this->dtc_baseline_ = true;
   }

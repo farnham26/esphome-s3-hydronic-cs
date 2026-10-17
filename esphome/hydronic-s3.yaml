@@ -341,7 +341,7 @@ interval:
           can->log_overflow_trace();
           uint32_t wake_us, drain_us, frame_us;
           can->take_latency_max(wake_us, drain_us, frame_us);
-          ESP_LOGI("can_diag", "read %u processed %u ovf %u drop %u qmax %u | wake max %u us frame max %u us drain max %u us | INT %s CANINTF %02X EFLG %02X REC %u TEC %u",
+          ESP_LOGD("can_diag", "read %u processed %u ovf %u drop %u qmax %u | wake max %u us frame max %u us drain max %u us | INT %s CANINTF %02X EFLG %02X REC %u TEC %u",
                    (unsigned) can->frames_read(), (unsigned) id(heater).frames(), (unsigned) can->rx_overflows(),
                    (unsigned) can->queue_drops(), (unsigned) can->queue_high_water(), (unsigned) wake_us,
                    (unsigned) frame_us, (unsigned) drain_us, int_low ? "LOW" : "high", intf, eflg, rec, tec);

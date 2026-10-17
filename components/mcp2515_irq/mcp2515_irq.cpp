@@ -215,10 +215,10 @@ void MCP2515::log_overflow_trace() {
     return;
   static const char *const NAMES[] = {"isr", "wake", "rxb0", "rxb1", "end", "OVERFLOW"};
   const uint32_t t0 = this->frozen_[this->frozen_head_].us;
-  ESP_LOGW(TAG, "reader timeline before overflow (us relative to oldest event):");
+  ESP_LOGD(TAG, "reader timeline before overflow (us relative to oldest event):");
   for (size_t i = 0; i < TRACE_LEN; i++) {
     const TraceEvent &e = this->frozen_[(this->frozen_head_ + i) % TRACE_LEN];
-    ESP_LOGW(TAG, "  %8u %-8s intf=%02X", (unsigned) (e.us - t0), NAMES[e.type], e.intf);
+    ESP_LOGD(TAG, "  %8u %-8s intf=%02X", (unsigned) (e.us - t0), NAMES[e.type], e.intf);
   }
 }
 
@@ -569,7 +569,7 @@ canbus::Error MCP2515::send_message(struct canbus::CanFrame *frame) {
     for (auto &tx_buffer : tx_buffers)
       if (failed & (1 << tx_buffer))
         modify_register_(TXB[tx_buffer].CTRL, TXB_TXREQ, 0);
-    ESP_LOGI(TAG, "TX aborted (no ack), buffers %02X", failed);
+    ESP_LOGD(TAG, "TX aborted (no ack), buffers %02X", failed);
     rc = canbus::ERROR_FAILTX;  // not merely busy: callers treat this as the bus being down
   }
 
