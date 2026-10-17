@@ -81,7 +81,7 @@ The heater stores but does not execute timers; the EasyStart runs them (this fir
 | `0A` / `0C` | start, cold / warm | told apart by temperature only |
 | `0D` | pre-start purge | ~35 s blower only, before a warm start after a cut-short burn |
 | `14` | heating | |
-| `1F` / `28` | run-down to pause / control pause | water pump keeps running |
+| `1F` / `28` | run-down to pause / control pause | water pump keeps running; `1F` ≈ 90 s (`2C4` run-down bit), `28` until the coolant is ≈ 70.5 °C, then a warm restart if still requested (no time limit seen); a hot start enters `28` directly; state `05` throughout (busy) |
 | `1E` | run-down after switch-off | glow plug afterglow ~45 s |
 | `C8` | blocked | start hold, also after P000307 |
 | `D2` | fan | |

@@ -205,7 +205,9 @@ button:
 
 Action `hydronic_s3.command`: `run` (start/stop), optional `mode` (`HEAT` | `FAN` | `RESIDUAL`) and
 `lease` (watchdog, e.g. `5min`, `0s` = none); all templatable. Conditions `hydronic_s3.commanding` (we
-command "on") and `hydronic_s3.burner_on` (starting or heating, polled). Full example with a regulator in
+command "on"), `hydronic_s3.burner_on` (starting or heating, polled), `hydronic_s3.busy` (running or
+run-down: a stop is complete once false; no OTA while true) and `hydronic_s3.mode_active: {mode: RESIDUAL}`
+(the mode the heater runs, from its status frame: verifies a mode change took). Full example with a regulator in
 plain YAML: `esphome/example-twai.yaml`.
 
 ## Controlling the heater
@@ -234,8 +236,8 @@ All controls are in the web UI group **Heater Control**.
     than by `run: false`; never during a start or a start retry. Covers:
     - end of a burn at the heater's coolant limit (≈83 °C, pause straight from heating), also with fault
       flags set: the run stays on and the heater restarts at ≈71 °C unless released. Once per burn.
-    - the heater ended the run itself (blocked `C8`, run-down `1E`, residual heat refused/ended, off):
-      the component releases the run.
+    - the heater ended the run itself (blocked `C8`, run-down `1E`, off), residual heat ended (after
+      running), residual heat refused (coolant too cold, never ran): the component releases the run.
     - start refused after all retries, another control unit on the bus, run watchdog: the run is off.
 
     A regulator releases its request here (`run: false`) without looking at `reason`. Paths seen on the

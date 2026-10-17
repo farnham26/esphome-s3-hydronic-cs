@@ -519,7 +519,9 @@ const char *HydronicS3::run_end_name(int why) {
     case RUN_END_HEATER_STOPPED:
       return "heater stopped";
     case RUN_END_RESIDUAL:
-      return "residual heat ended or refused";
+      return "residual heat ended";
+    case RUN_END_RESIDUAL_REFUSED:
+      return "residual heat refused";
     case RUN_END_OTHER_CONTROL_UNIT:
       return "other control unit";
     case RUN_END_WATCHDOG:
@@ -545,7 +547,10 @@ void HydronicS3::phase_events_(int from, int to) {
   // The heater ended the run itself (blocked, run-down, refused, off): our "on" would stay stuck.
   const bool stopped = to == 0xC8 || to == 0x1E || to == 0xDE || (to == 0x00 && from > 0x00 && !start_phase(from));
   if (stopped && from != to && this->retry_until_ms_ == 0)
-    this->run_ended_(RUN_END_HEATER_STOPPED, to, true);
+    this->run_ended_(to != 0xDE        ? RUN_END_HEATER_STOPPED
+                     : this->residual_ran_ ? RUN_END_RESIDUAL
+                                           : RUN_END_RESIDUAL_REFUSED,
+                     to, true);
   if (to == 0x00 && from > 0x00)
     this->event_("idle", from, to, false);
 }
@@ -583,9 +588,11 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
     }
     if (data[0] != this->state_) {
       this->event_("state", this->state_, data[0]);
-      if (data[0] == 0xC1) {  // residual heat ended or refused (coolant too cold)
+      if (data[0] == 0x81)
+        this->residual_ran_ = true;
+      if (data[0] == 0xC1) {  // residual heat ended, or refused (41 -> C1, coolant too cold)
         this->event_("residual_end", this->state_, data[0], false);
-        this->run_ended_(RUN_END_RESIDUAL, data[0], true);
+        this->run_ended_(this->residual_ran_ ? RUN_END_RESIDUAL : RUN_END_RESIDUAL_REFUSED, this->state_, true);
       }
       this->state_ = data[0];
       this->idle_sweeps_ = IDLE_SWEEPS;
@@ -793,8 +800,10 @@ void HydronicS3::set_command(bool on) {
   }
   this->start_retries_ = 0;
   this->retry_until_ms_ = 0;
-  if (on)
+  if (on) {
     this->run_end_final_ = false;
+    this->residual_ran_ = false;
+  }
   ESP_LOGI(TAG, "command %s", on ? "ON" : "OFF");
   this->event_("cmd", this->command_on_, on, false);
   this->command_on_ = on;

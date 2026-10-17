@@ -32,6 +32,8 @@ NewFaultCodeTrigger = hydronic_s3_ns.class_(
 CommandAction = hydronic_s3_ns.class_("CommandAction", automation.Action)
 CommandingCondition = hydronic_s3_ns.class_("CommandingCondition", automation.Condition)
 BurnerOnCondition = hydronic_s3_ns.class_("BurnerOnCondition", automation.Condition)
+BusyCondition = hydronic_s3_ns.class_("BusyCondition", automation.Condition)
+ModeActiveCondition = hydronic_s3_ns.class_("ModeActiveCondition", automation.Condition)
 
 # 054 B1, as HydronicS3::MODE_*.
 COMMAND_MODES = {"HEAT": 0x01, "FAN": 0x02, "RESIDUAL": 0x03}
@@ -159,3 +161,30 @@ async def commanding_to_code(config, condition_id, template_arg, args):
 async def burner_on_to_code(config, condition_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
     return cg.new_Pvariable(condition_id, template_arg, parent)
+
+
+@automation.register_condition(
+    "hydronic_s3.busy",
+    BusyCondition,
+    automation.maybe_simple_id({cv.GenerateID(): cv.use_id(HydronicS3)}),
+)
+async def busy_to_code(config, condition_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    return cg.new_Pvariable(condition_id, template_arg, parent)
+
+
+@automation.register_condition(
+    "hydronic_s3.mode_active",
+    ModeActiveCondition,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(HydronicS3),
+            cv.Required(CONF_MODE): cv.templatable(cv.enum(COMMAND_MODES, upper=True)),
+        }
+    ),
+)
+async def mode_active_to_code(config, condition_id, template_arg, args):
+    parent = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(condition_id, template_arg, parent)
+    cg.add(var.set_mode(await cg.templatable(config[CONF_MODE], args, cg.uint8)))
+    return var

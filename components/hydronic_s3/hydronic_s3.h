@@ -240,9 +240,10 @@ class HydronicS3 : public Component
     RUN_END_PAUSE_FAULT,        // same, with fault flags set
     RUN_END_START_REFUSED,      // start hold after all retries
     RUN_END_HEATER_STOPPED,     // phase C8 / 1E / DE / 00 without our stop
-    RUN_END_RESIDUAL,           // residual heat ended or refused (2C4 C1)
+    RUN_END_RESIDUAL,           // residual heat ended (2C4 C1 after 81)
     RUN_END_OTHER_CONTROL_UNIT,
     RUN_END_WATCHDOG,
+    RUN_END_RESIDUAL_REFUSED,   // residual heat refused: C1 / phase DE without 81 (coolant too cold)
   };
   static const char *run_end_name(int why);
   /// Sweep interval of sensor_dids(); polling starts at boot unless a polling switch decides.
@@ -257,7 +258,15 @@ class HydronicS3 : public Component
 #endif
   /// 054 B1 while "on", as the EasyStart's three modes: MODE_HEAT (burner), MODE_FAN
   /// (vehicle fan only), MODE_RESIDUAL (water pump + vehicle fan, no burner).
-  void set_command_mode(uint8_t mode) { this->command_mode_ = mode; }
+  void set_command_mode(uint8_t mode) {
+    if (mode != this->command_mode_)
+      this->residual_ran_ = false;
+    this->command_mode_ = mode;
+  }
+  /// The heater runs this mode (2C4 state 05 heat incl. start/pause, 21 fan, 81 residual), not our command.
+  bool mode_active(uint8_t mode) const {
+    return this->state_ == (mode == MODE_HEAT ? 0x05 : mode == MODE_FAN ? 0x21 : mode == MODE_RESIDUAL ? 0x81 : -1);
+  }
   static constexpr uint8_t MODE_HEAT = 0x01;
   static constexpr uint8_t MODE_FAN = 0x02;
   static constexpr uint8_t MODE_RESIDUAL = 0x03;
@@ -409,6 +418,7 @@ class HydronicS3 : public Component
   uint32_t handover_until_ms_{0};  // run adopted after an OTA reboot: stops wait for the phase
   void deferred_stop_();
   bool run_end_final_{false};  // run_ended for this run already raised (final kinds)
+  bool residual_ran_{false};    // state 81 seen since the run (mode) started: a C1 then is an end, else a refusal
   void run_ended_(RunEnd why, int detail, bool stop);
   uint8_t command_mode_{MODE_HEAT};
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
@@ -534,6 +544,27 @@ template<typename... Ts> class CommandAction : public Action<Ts...> {
       this->parent_->set_command_lease(this->lease_.value(x...));
     this->parent_->set_command(this->run_.value(x...));
   }
+
+ protected:
+  HydronicS3 *parent_;
+};
+
+/// hydronic_s3.busy: heater_busy().
+template<typename... Ts> class BusyCondition : public Condition<Ts...> {
+ public:
+  explicit BusyCondition(HydronicS3 *parent) : parent_(parent) {}
+  bool check(const Ts &...x) override { return this->parent_->heater_busy(); }
+
+ protected:
+  HydronicS3 *parent_;
+};
+
+/// hydronic_s3.mode_active: mode_active(mode).
+template<typename... Ts> class ModeActiveCondition : public Condition<Ts...> {
+ public:
+  explicit ModeActiveCondition(HydronicS3 *parent) : parent_(parent) {}
+  TEMPLATABLE_VALUE(uint8_t, mode)
+  bool check(const Ts &...x) override { return this->parent_->mode_active(this->mode_.value(x...)); }
 
  protected:
   HydronicS3 *parent_;
