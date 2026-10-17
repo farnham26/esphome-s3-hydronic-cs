@@ -7,6 +7,12 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#ifdef USE_ESP32
+#include <esp_attr.h>
+#include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#endif
 
 namespace esphome::hydronic_s3 {
 
@@ -38,6 +44,11 @@ static constexpr uint32_t COMMAND_PERIOD_MS = 200;
 static constexpr uint32_t KEEPALIVE_PERIOD_MS = 100;
 static constexpr uint32_t COMMAND_OFF_MS = 15000;  // after idle, as the EasyStart
 static constexpr uint32_t CONTROLLER_PERIOD_MS = 3000;
+#ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
+// Survives the software reboot after an OTA (not a power cycle): the new image continues "off".
+static constexpr uint32_t OTA_HANDOVER_MAGIC = 0x48534F54;
+RTC_NOINIT_ATTR static uint32_t ota_handover;
+#endif
 static constexpr uint32_t REQUEST_SETTLE_MS = 1000;  // FD10 B0 follows our command within ~0.2 s  // 065, as the EasyStart after a wake
 // EasyStart configuration burst, sent 4x (~150 ms apart) ~2 s after its power-up;
 // recorded 10-11, replayed once per boot when it is absent; 10A carries our clock if
@@ -252,6 +263,17 @@ void HydronicS3::hex(char *out, const uint8_t *d, uint8_t len) {
 }
 
 void HydronicS3::setup() {
+#ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
+  if (this->ota_keepalive_) {
+    ota::get_global_ota_callback()->add_global_state_listener(this);
+    if (ota_handover == OTA_HANDOVER_MAGIC && esp_reset_reason() == ESP_RST_SW) {
+      // Rebooted by our OTA with the heater busy: keep talking "off" until it is idle.
+      ESP_LOGI(TAG, "OTA handover: command off until the heater is idle");
+      this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+    }
+    ota_handover = 0;
+  }
+#endif
   this->canbus_->add_callback([this](uint32_t can_id, bool ext, bool rtr, const std::vector<uint8_t> &data) {
     this->on_frame_(can_id, ext, rtr, data);
   });
@@ -727,7 +749,7 @@ void HydronicS3::update_mode_() {
   this->set_listen_only_(!normal);
 }
 
-void HydronicS3::set_command(bool on) {
+void HydronicS3::set_command(bool on, bool force) {
   if (this->observer_) {
     ESP_LOGW(TAG, "observer: command %s refused", on ? "ON" : "OFF");
     return;
@@ -742,7 +764,7 @@ void HydronicS3::set_command(bool on) {
   if (!on && !this->commanding_())
     return;
   // Never abort a start (fuel stroke, soot): stop once glow/fuel is over (deferred_stop_()).
-  if (!on && this->command_on_ && (this->phase_ == 0x0A || this->phase_ == 0x0C)) {
+  if (!on && !force && this->command_on_ && (this->phase_ == 0x0A || this->phase_ == 0x0C)) {
     if (!this->stop_deferred_)
       ESP_LOGI(TAG, "command OFF deferred: burner starting");
     this->stop_deferred_ = true;
@@ -808,8 +830,7 @@ void HydronicS3::command_loop_() {
   // "Off" continues while the heater is busy (run-down, active): it expects its
   // controller to keep talking, else P000307 (CAN communication error control unit)
   // ~15 s after silence. Ends COMMAND_OFF_MS after it is idle or asleep.
-  const bool busy = this->connected() && (this->rundown_ || (this->state_ != 0x00 && this->state_ != 0x03));
-  if (!this->command_on_ && busy)
+  if (!this->command_on_ && this->heater_busy())
     this->command_until_ms_ = now + COMMAND_OFF_MS;
   if (this->command_on_ && this->command_lease_ms_ != 0 &&
       static_cast<int32_t>(now - this->command_deadline_ms_) >= 0) {
@@ -856,6 +877,54 @@ void HydronicS3::command_loop_() {
   this->queue_(0x056, SETPOINT, 8);
   this->queue_(0x057, TAIL, 8);
 }
+
+#ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
+// The upload blocks the main loop for 10-20 s; the heater logs P000307 + P000440 after ~15 s
+// without its controller. Stop the run and send the controller frames from a task instead.
+void HydronicS3::on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
+  if (state == ota::OTA_STARTED) {
+    if (this->observer_ || this->easystart_present_() || !(this->commanding_() || this->heater_busy()))
+      return;
+    ESP_LOGW(TAG, "OTA with the heater busy: command off, keep-alive until the reboot");
+    this->set_command(false, true);
+    this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+    ota_handover = OTA_HANDOVER_MAGIC;
+    this->keepalive_stop_ = false;
+    if (this->keepalive_task_ == nullptr)
+      xTaskCreate(keepalive_task_fn_, "hs3_keepalive", 3072, this, 5, reinterpret_cast<TaskHandle_t *>(&this->keepalive_task_));
+  } else if (state == ota::OTA_ERROR || state == ota::OTA_ABORT) {
+    if (this->keepalive_task_ == nullptr)
+      return;
+    this->keepalive_stop_ = true;  // the task ends itself; the main loop sends again
+    ota_handover = 0;
+    this->command_until_ms_ = millis() + COMMAND_OFF_MS;
+  }
+}
+
+// Off command set (200 ms), keep-alive (100 ms) and controller status (3 s), as command_loop_().
+void HydronicS3::keepalive_task_fn_(void *arg) {
+  auto *self = static_cast<HydronicS3 *>(arg);
+  static const uint8_t OFF[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  static const uint8_t SETPOINT[8] = {0x10, 0x27, 0, 0, 0, 0, 0, 0};
+  auto send = [self](uint32_t id, const uint8_t *data) {
+    self->canbus_->send_data(id, false, std::vector<uint8_t>(data, data + 8));  // errors: next tick
+  };
+  for (uint32_t tick = 0; !self->keepalive_stop_; tick++) {
+    send(ID_KEEPALIVE, self->keepalive_data_);
+    if (tick % (COMMAND_PERIOD_MS / KEEPALIVE_PERIOD_MS) == 0) {
+      send(ID_COMMAND, OFF);
+      send(0x055, SETPOINT);
+      send(0x056, SETPOINT);
+      send(0x057, OFF);
+    }
+    if (tick % (CONTROLLER_PERIOD_MS / KEEPALIVE_PERIOD_MS) == 0)
+      send(ID_CONTROLLER_STATUS, self->controller_data_);
+    vTaskDelay(pdMS_TO_TICKS(KEEPALIVE_PERIOD_MS));
+  }
+  self->keepalive_task_ = nullptr;
+  vTaskDelete(nullptr);
+}
+#endif
 
 static constexpr size_t TX_QUEUE_MAX = 64;
 
@@ -954,6 +1023,10 @@ bool HydronicS3::clock_frame_(uint8_t out[6]) {
 }
 
 void HydronicS3::loop() {
+#ifdef USE_BINARY_SENSOR
+  if (this->busy_ != nullptr)
+    this->busy_->publish_state(this->heater_busy());  // deduplicated by the entity
+#endif
 #ifdef USE_SWITCH
   if (this->run_switch_ != nullptr && this->run_switch_->state != this->command_on_)
     this->run_switch_->publish_state(this->command_on_);

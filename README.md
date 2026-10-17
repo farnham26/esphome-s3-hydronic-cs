@@ -158,6 +158,7 @@ hydronic_s3:
   research: false                # optional: ID table, change log, wake trace in the log
   observer: false                # optional: diagnosis only, another unit is the control unit
   poll_interval: 5s              # optional: sweep of the polled values; stops while the heater sleeps
+  ota_keepalive: false           # optional (ESP32, needs ota:): OTA while busy stops cleanly, see below
   on_new_fault_code:             # optional, see "Controlling the heater"
     - logger.log: {format: "new fault code %s", args: [code.c_str()]}
 
@@ -174,7 +175,7 @@ sensor:
 binary_sensor:
   - platform: hydronic_s3
     connected: {name: "Heater Connected"}
-    # flame, vehicle_fan, request, on_request
+    # flame, vehicle_fan, request, on_request, busy (running or run-down: no OTA now)
 
 text_sensor:
   - platform: hydronic_s3
@@ -261,6 +262,10 @@ All controls are in the web UI group **Heater Control**.
   `28`, `85` and `31 01` are refused while the heater is active.
 - On stop the component keeps talking to the heater through its run-down (the heater raises
   P000307 "CAN communication error" if its controller falls silent).
+- **OTA while the heater is busy**: the upload blocks the main loop for 10-20 s, and more than ~15 s of
+  silence logs P000307 + P000440. With `ota_keepalive: true` the component stops the run at the OTA start
+  (also during a start), a task keeps sending the controller frames during the upload, and the new image
+  keeps talking "off" after the reboot until the heater is idle. Without it, flash only while `busy` is off.
 - **Read Fault Codes** / **Clear Fault Codes** (buttons): the error memory as the EasyStart's workshop
   menu shows and deletes it (code list: [`docs/dtc.md`](docs/dtc.md)). Clearing needs a SecurityAccess
   key that is not in this repo; register it with `set_security_provider()` from a local config (below).

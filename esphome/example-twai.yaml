@@ -35,6 +35,7 @@ canbus:
 hydronic_s3:
   id: heater
   canbus_id: heater_can
+  # ota_keepalive: true  # with an ota: block: OTA while the heater runs stops cleanly, no P000307
   # The regulator pattern from the README ("Stopping from a regulator").
   on_run_ended:  # burn ended at the coolant limit (run still on), or the heater ended the run
     - logger.log: {format: "run ended: %s", args: [reason.c_str()]}
@@ -141,6 +142,8 @@ binary_sensor:
       name: "Flame"
     connected:
       name: "Heater Connected"
+    busy:
+      name: "Heater Busy"
 
 text_sensor:
   - platform: hydronic_s3

@@ -36,6 +36,10 @@
 #include "esphome/components/button/button.h"
 #endif
 #include "esphome/core/preferences.h"
+#ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
+#include "esphome/components/ota/ota_backend.h"
+#endif
+#include <atomic>
 
 namespace esphome::hydronic_s3 {
 
@@ -109,7 +113,12 @@ static constexpr float FLOW_OFF_DT_K = 2.0f;
 /// Eberspächer Hydronic S3 on CAN (EasyStart protocol, 11-bit, 500 kbit/s).
 /// Listen-only: decodes what is known, and logs new IDs and changing bytes so
 /// the rest can be decoded from logs.
-class HydronicS3 : public Component {
+class HydronicS3 : public Component
+#ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
+    ,
+                   public ota::OTAGlobalStateListener
+#endif
+{
  public:
   void set_canbus(canbus::Canbus *bus) { this->canbus_ = bus; }
   /// Research aids: per-ID table, change log, wake trace (off: decode only).
@@ -118,6 +127,10 @@ class HydronicS3 : public Component {
   /// wake answer, config burst or clock; another control unit (e.g. tempcontrol) owns the
   /// heater. Not switched on while we command (the heater would lose its control unit).
   void set_observer(bool observer);
+  void set_ota_keepalive(bool on) { this->ota_keepalive_ = on; }
+#ifdef USE_HYDRONIC_S3_OTA_KEEPALIVE
+  void on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) override;
+#endif
   bool observer() const { return this->observer_; }
 #ifdef USE_TIME
   /// Clock for the heater (10A, as the EasyStart's time setting): sent with the config
@@ -146,10 +159,15 @@ class HydronicS3 : public Component {
   void set_connected_binary_sensor(binary_sensor::BinarySensor *s) { this->connected_ = s; }
   void set_vehicle_fan_binary_sensor(binary_sensor::BinarySensor *s) { this->vehicle_fan_ = s; }
   void set_request_binary_sensor(binary_sensor::BinarySensor *s) { this->request_ = s; }
+  void set_busy_binary_sensor(binary_sensor::BinarySensor *s) { this->busy_ = s; }
 #endif
 
   /// Heater status frames received within the stale timeout.
   bool connected() const { return this->status_ms_ != 0; }
+  /// Awake and not idle (running, run-down): it expects its controller to keep talking.
+  bool heater_busy() const {
+    return this->connected() && (this->rundown_ || (this->state_ != 0x00 && this->state_ != 0x03));
+  }
   /// Last decoded values; NAN / -1 until received and after the stale timeout.
   float outlet_temperature() const { return this->outlet_temp_c_; }
   int state() const { return this->state_; }
@@ -202,7 +220,8 @@ class HydronicS3 : public Component {
   /// (false, continued while the heater runs down). Backs off for good as soon as an
   /// EasyStart frame appears: never two controllers on the bus. Normal mode meanwhile.
   /// "On" is refused while the heater runs on S+ (request_source() == REQUEST_S_PLUS).
-  void set_command(bool on);
+  /// force: also during a start (no deferral), e.g. before an OTA.
+  void set_command(bool on, bool force = false);
   /// Watchdog: "on" stops (with "off") unless set_command(true) renews it within this
   /// time. 0: no watchdog, run until set_command(false).
   void set_command_lease(uint32_t ms) { this->command_lease_ms_ = ms; }
@@ -273,6 +292,11 @@ class HydronicS3 : public Component {
   static void hex(char *out, const uint8_t *d, uint8_t len);  // "AA BB ..", 3 chars per byte
   bool research_{false};
   bool observer_{false};
+  bool ota_keepalive_{false};
+  // OTA keep-alive: frames from a task while the main loop is blocked by the upload.
+  void *keepalive_task_{nullptr};
+  std::atomic<bool> keepalive_stop_{false};
+  static void keepalive_task_fn_(void *arg);
   void dump_ids_();
   void decode_(uint32_t can_id, const std::vector<uint8_t> &data);
   void event_(const char *what, int from, int to, bool log = true);
@@ -450,6 +474,7 @@ class HydronicS3 : public Component {
   binary_sensor::BinarySensor *flame_{nullptr};
   binary_sensor::BinarySensor *connected_{nullptr};
   binary_sensor::BinarySensor *vehicle_fan_{nullptr};
+  binary_sensor::BinarySensor *busy_{nullptr};
   binary_sensor::BinarySensor *request_{nullptr};
 #endif
 };

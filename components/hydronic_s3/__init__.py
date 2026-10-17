@@ -2,6 +2,7 @@ from esphome import automation
 import esphome.codegen as cg
 from esphome.components import canbus, time
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.const import CONF_ID, CONF_MODE, CONF_TIME_ID, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@farnham26"]
@@ -11,6 +12,7 @@ MULTI_CONF = False
 CONF_HYDRONIC_S3_ID = "hydronic_s3_id"
 CONF_RESEARCH = "research"
 CONF_OBSERVER = "observer"
+CONF_OTA_KEEPALIVE = "ota_keepalive"
 CONF_ON_EVENT = "on_event"
 CONF_ON_RUN_ENDED = "on_run_ended"
 CONF_ON_NEW_FAULT_CODE = "on_new_fault_code"
@@ -42,6 +44,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_RESEARCH, default=False): cv.boolean,
         # Diagnosis only, never a control unit (another unit controls the heater).
         cv.Optional(CONF_OBSERVER, default=False): cv.boolean,
+        # OTA while the heater is busy: stop the run, keep talking during the upload and after
+        # the reboot until it is idle (silence > ~15 s logs P000307 + P000440). ESP32 only.
+        cv.Optional(CONF_OTA_KEEPALIVE, default=False): cv.All(cv.boolean, cv.only_on_esp32),
         # Clock sent to the heater (10A) with the config burst and on each sync.
         cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
         # Sweep of the sensor DIDs (phase, temperatures, ...); stops by itself while the heater sleeps.
@@ -73,6 +78,14 @@ def _on_event_research_only(config):
 CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _on_event_research_only)
 
 
+def _final_validate(config):
+    if config[CONF_OTA_KEEPALIVE] and "ota" not in fv.full_config.get():
+        raise cv.Invalid(f"{CONF_OTA_KEEPALIVE} needs an ota: block")
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -80,6 +93,12 @@ async def to_code(config):
     cg.add(var.set_canbus(bus))
     cg.add(var.set_research(config[CONF_RESEARCH]))
     cg.add(var.set_observer(config[CONF_OBSERVER]))
+    if config[CONF_OTA_KEEPALIVE]:
+        from esphome.components import ota
+
+        ota.request_ota_state_listeners()
+        cg.add_define("USE_HYDRONIC_S3_OTA_KEEPALIVE")
+        cg.add(var.set_ota_keepalive(True))
     cg.add(var.set_poll_interval(config[CONF_POLL_INTERVAL]))
     if CONF_TIME_ID in config:
         clock = await cg.get_variable(config[CONF_TIME_ID])

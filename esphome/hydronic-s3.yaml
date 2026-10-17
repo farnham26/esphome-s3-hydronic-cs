@@ -179,6 +179,11 @@ binary_sensor:
       icon: mdi:lan-connect
       web_server:
         sorting_group_id: group_heater
+    busy:
+      name: "Heater Busy"
+      icon: mdi:progress-clock
+      web_server:
+        sorting_group_id: group_heater
   - id: !extend button_a
     on_press:
       - lvgl.page.previous:
