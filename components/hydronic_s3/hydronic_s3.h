@@ -229,6 +229,9 @@ class HydronicS3 : public Component
   }
   /// Research: stops sending at once, without "off" (controller loss).
   void abort_command();
+  /// Research: B0-B1 (u16 LE) of 055 (frame 0) or 056 (frame 1), sent with the command set.
+  /// 10000 as the EasyStart; meaning unknown (watch the fuel rate FD11 and the altitude minutes FD17).
+  void set_setpoint_word(uint8_t frame, uint16_t value);
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
   /// Burner starting or heating (FD10 phase, polled); false while unknown.
@@ -429,6 +432,8 @@ class HydronicS3 : public Component
   bool residual_ran_{false};    // state 81 seen since the run (mode) started: a C1 then is an end, else a refusal
   void run_ended_(RunEnd why, int detail, bool stop);
   uint8_t command_mode_{MODE_HEAT};
+  uint16_t setpoint_word_[2]{10000, 10000};  // 055, 056 B0-B1
+  void setpoint_frames_(uint8_t (&frames)[2][8]) const;
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
   uint32_t command_lease_ms_{0};

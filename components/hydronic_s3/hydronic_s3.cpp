@@ -864,6 +864,20 @@ void HydronicS3::abort_command() {
   this->update_mode_();
 }
 
+void HydronicS3::set_setpoint_word(uint8_t frame, uint16_t value) {
+  if (frame > 1 || this->setpoint_word_[frame] == value)
+    return;
+  ESP_LOGI(TAG, "%03X word %u -> %u", 0x055 + frame, this->setpoint_word_[frame], value);
+  this->setpoint_word_[frame] = value;
+}
+
+void HydronicS3::setpoint_frames_(uint8_t (&frames)[2][8]) const {
+  for (int i = 0; i < 2; i++) {
+    frames[i][0] = this->setpoint_word_[i] & 0xFF;
+    frames[i][1] = this->setpoint_word_[i] >> 8;
+  }
+}
+
 void HydronicS3::command_loop_() {
   const uint32_t now = millis();
   this->deferred_stop_();
@@ -910,11 +924,12 @@ void HydronicS3::command_loop_() {
   const bool on = this->command_on_ && ready && this->retry_until_ms_ == 0;
   const uint8_t command[8] = {on ? uint8_t(0x01) : uint8_t(0x00), on ? this->command_mode_ : uint8_t(0x00),
                               0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
-  static const uint8_t SETPOINT[8] = {0x10, 0x27, 0, 0, 0, 0, 0, 0};  // 10000, meaning unknown
   static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  uint8_t setpoint[2][8]{};
+  this->setpoint_frames_(setpoint);
   this->queue_(ID_COMMAND, command, 8);
-  this->queue_(0x055, SETPOINT, 8);
-  this->queue_(0x056, SETPOINT, 8);
+  this->queue_(0x055, setpoint[0], 8);
+  this->queue_(0x056, setpoint[1], 8);
   this->queue_(0x057, TAIL, 8);
 }
 
@@ -951,7 +966,8 @@ void HydronicS3::keepalive_task_fn_(void *arg) {
   auto *self = static_cast<HydronicS3 *>(arg);
   const uint8_t command[8] = {self->keepalive_command_[0], self->keepalive_command_[1], 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
   static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
-  static const uint8_t SETPOINT[8] = {0x10, 0x27, 0, 0, 0, 0, 0, 0};
+  uint8_t setpoint[2][8]{};
+  self->setpoint_frames_(setpoint);
   auto send = [self](uint32_t id, const uint8_t *data) {
     self->canbus_->send_data(id, false, std::vector<uint8_t>(data, data + 8));  // errors: next tick
   };
@@ -959,8 +975,8 @@ void HydronicS3::keepalive_task_fn_(void *arg) {
     send(ID_KEEPALIVE, self->keepalive_data_);
     if (tick % (COMMAND_PERIOD_MS / KEEPALIVE_PERIOD_MS) == 0) {
       send(ID_COMMAND, command);
-      send(0x055, SETPOINT);
-      send(0x056, SETPOINT);
+      send(0x055, setpoint[0]);
+      send(0x056, setpoint[1]);
       send(0x057, TAIL);
     }
     if (tick % (CONTROLLER_PERIOD_MS / KEEPALIVE_PERIOD_MS) == 0)
