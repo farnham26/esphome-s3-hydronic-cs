@@ -925,8 +925,13 @@ void HydronicS3::set_room_sensor(bool control_unit) {
   this->room_sensor_ = control_unit;
   this->config_counter_ = this->config_counter_ % 3 + 1;  // as the EasyStart on a confirmed setting
   ESP_LOGI(TAG, "063 sensor %s (change %u)", control_unit ? "control unit" : "none", this->config_counter_);
+  this->send_config();
+}
+
+void HydronicS3::send_config() {
   this->burst_sent_ = false;
   this->schedule_burst_();
+  ESP_LOGI(TAG, "config burst %s", this->burst_due_ms_ != 0 ? "scheduled" : "not ours to send");
 }
 
 void HydronicS3::command_frame_(uint8_t (&frame)[8], uint8_t on, uint8_t mode) const {
@@ -1125,7 +1130,7 @@ void HydronicS3::burst_loop_() {
   }
   this->burst_due_ms_ = 0;
   this->burst_sent_ = true;
-  ESP_LOGD(TAG, "config burst sent");
+  ESP_LOGI(TAG, "config burst sent");
 }
 
 // 10A as the EasyStart sends it after its time setting (decoded 10-11):

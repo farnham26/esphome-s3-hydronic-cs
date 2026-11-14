@@ -239,6 +239,9 @@ class HydronicS3 : public Component
   void set_controller_temperature(float celsius);
   /// Research: 063 B1 temperature sensor (false none, true control unit); resends the configuration burst.
   void set_room_sensor(bool control_unit);
+  /// Research: send the configuration burst again (as the EasyStart at the heater's power-up), e.g. after a
+  /// heater power cycle; it otherwise goes out once per boot of this device. Needs the bus (commanding).
+  void send_config();
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
   /// Burner starting or heating (FD10 phase, polled); false while unknown.
