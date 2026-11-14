@@ -232,6 +232,13 @@ class HydronicS3 : public Component
   /// Research: B0-B1 (u16 LE) of 055 (frame 0) or 056 (frame 1), sent with the command set.
   /// 10000 as the EasyStart; meaning unknown (watch the fuel rate FD11 and the altitude minutes FD17).
   void set_setpoint_word(uint8_t frame, uint16_t value);
+  /// Research: room temperature control probe, °C (NAN = not available).
+  /// 054 B2-B3 (slot 0) / B4-B5 (slot 1); FE FF from the EasyStart without a room sensor.
+  void set_command_temperature(uint8_t slot, float celsius);
+  /// Research: 065 B0-B1 (control unit temperature, channel 1).
+  void set_controller_temperature(float celsius);
+  /// Research: 063 B1 temperature sensor (false none, true control unit); resends the configuration burst.
+  void set_room_sensor(bool control_unit);
   /// Start requested and not backed off.
   bool command_on() const { return this->command_on_; }
   /// Burner starting or heating (FD10 phase, polled); false while unknown.
@@ -434,6 +441,10 @@ class HydronicS3 : public Component
   uint8_t command_mode_{MODE_HEAT};
   uint16_t setpoint_word_[2]{10000, 10000};  // 055, 056 B0-B1
   void setpoint_frames_(uint8_t (&frames)[2][8]) const;
+  uint16_t command_temperature_[2]{0xFFFE, 0xFFFE};  // 054 B2-B3, B4-B5
+  bool room_sensor_{false};                           // 063 B1
+  uint8_t config_counter_{0};                         // 063 B3, 1-2-3 per change
+  void command_frame_(uint8_t (&frame)[8], uint8_t on, uint8_t mode) const;
   uint32_t command_until_ms_{0};  // off set sent until then; 0: not commanding
   uint32_t command_next_ms_{0};
   uint32_t command_lease_ms_{0};
@@ -443,6 +454,9 @@ class HydronicS3 : public Component
   uint32_t keepalive_next_ms_{0};
   uint8_t keepalive_data_[8]{0x0D, 0x10, 0x75, 0x7A, 0x02, 0x20, 0x70, 0x00};  // last 60D seen
   uint8_t controller_data_[8]{0x6C, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};  // last 065 seen
+  uint16_t seen_word_[2]{};  // 055, 056 B0-B1 of another control unit, logged on change
+  uint8_t seen_command_[2][8]{};  // 054, 057 of another control unit, logged on change
+  uint32_t altitude_min_{};  // FD17 altitude minutes, logged on change
   uint32_t controller_next_ms_{0};
   bool burst_sent_{false};      // EasyStart config burst replayed since boot
   uint32_t burst_due_ms_{0};    // 0: not scheduled

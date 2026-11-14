@@ -477,6 +477,25 @@ void HydronicS3::on_frame_(uint32_t can_id, bool ext, bool rtr, const std::vecto
     std::copy(data.begin(), data.begin() + 8, this->keepalive_data_);
   if (easystart && can_id == ID_CONTROLLER_STATUS && len == 8)
     std::copy(data.begin(), data.begin() + 8, this->controller_data_);
+  if (easystart && (can_id == 0x055 || can_id == 0x056) && len >= 2) {
+    const uint16_t word = data[0] | data[1] << 8;
+    uint16_t &seen = this->seen_word_[can_id - 0x055];
+    if (word != seen)
+      ESP_LOGI(TAG, "%03" PRIX32 " word seen %u -> %u", can_id, seen, word);
+    seen = word;
+  }
+  if (!ext && ((can_id >= 0x05C && can_id <= 0x06D) || can_id == 0x10A)) {  // configuration burst: rare
+    hex(buf, data.data(), len);
+    ESP_LOGI(TAG, "%03" PRIX32 " config %s", can_id, buf);
+  }
+  if (easystart && (can_id == ID_COMMAND || can_id == 0x057) && len == 8) {
+    uint8_t (&seen)[8] = this->seen_command_[can_id == ID_COMMAND ? 0 : 1];
+    if (!std::equal(data.begin(), data.begin() + 8, seen)) {
+      hex(buf, data.data(), len);
+      ESP_LOGI(TAG, "%03" PRIX32 " seen %s", can_id, buf);
+      std::copy(data.begin(), data.begin() + 8, seen);
+    }
+  }
   if (easystart && this->commanding_()) {
     ESP_LOGW(TAG, "other control unit (%03" PRIX32 "): command off", can_id);
     this->event_("cmd backoff", can_id, 0, false);
@@ -878,6 +897,48 @@ void HydronicS3::setpoint_frames_(uint8_t (&frames)[2][8]) const {
   }
 }
 
+// Temperatures as 065 carries them (whole degrees seen): raw = °C x 10 + 400; FE FF = not available.
+static uint16_t temperature_raw(float celsius) {
+  if (std::isnan(celsius))
+    return 0xFFFE;
+  return static_cast<uint16_t>(lroundf(std::min(std::max(celsius, -40.0f), 85.0f) * 10.0f) + 400);
+}
+
+void HydronicS3::set_command_temperature(uint8_t slot, float celsius) {
+  const uint16_t raw = temperature_raw(celsius);
+  if (slot > 1 || this->command_temperature_[slot] == raw)
+    return;
+  ESP_LOGI(TAG, "054 B%u %04X -> %04X", 2 + 2 * slot, this->command_temperature_[slot], raw);
+  this->command_temperature_[slot] = raw;
+}
+
+void HydronicS3::set_controller_temperature(float celsius) {
+  const uint16_t raw = temperature_raw(celsius);
+  ESP_LOGI(TAG, "065 B0 %04X -> %04X", this->controller_data_[0] | this->controller_data_[1] << 8, raw);
+  this->controller_data_[0] = raw & 0xFF;
+  this->controller_data_[1] = raw >> 8;
+}
+
+void HydronicS3::set_room_sensor(bool control_unit) {
+  if (this->room_sensor_ == control_unit)
+    return;
+  this->room_sensor_ = control_unit;
+  this->config_counter_ = this->config_counter_ % 3 + 1;  // as the EasyStart on a confirmed setting
+  ESP_LOGI(TAG, "063 sensor %s (change %u)", control_unit ? "control unit" : "none", this->config_counter_);
+  this->burst_sent_ = false;
+  this->schedule_burst_();
+}
+
+void HydronicS3::command_frame_(uint8_t (&frame)[8], uint8_t on, uint8_t mode) const {
+  frame[0] = on;
+  frame[1] = mode;
+  for (int i = 0; i < 2; i++) {
+    frame[2 + 2 * i] = this->command_temperature_[i] & 0xFF;
+    frame[3 + 2 * i] = this->command_temperature_[i] >> 8;
+  }
+  frame[6] = frame[7] = 0x00;
+}
+
 void HydronicS3::command_loop_() {
   const uint32_t now = millis();
   this->deferred_stop_();
@@ -922,8 +983,8 @@ void HydronicS3::command_loop_() {
     ESP_LOGD(TAG, "start retry %u: on", this->start_retries_);
   }
   const bool on = this->command_on_ && ready && this->retry_until_ms_ == 0;
-  const uint8_t command[8] = {on ? uint8_t(0x01) : uint8_t(0x00), on ? this->command_mode_ : uint8_t(0x00),
-                              0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  uint8_t command[8];
+  this->command_frame_(command, on ? 0x01 : 0x00, on ? this->command_mode_ : 0x00);
   static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
   uint8_t setpoint[2][8]{};
   this->setpoint_frames_(setpoint);
@@ -964,7 +1025,8 @@ void HydronicS3::on_ota_global_state(ota::OTAState state, float progress, uint8_
 // Command set as held (200 ms), keep-alive (100 ms) and controller status (3 s), as command_loop_().
 void HydronicS3::keepalive_task_fn_(void *arg) {
   auto *self = static_cast<HydronicS3 *>(arg);
-  const uint8_t command[8] = {self->keepalive_command_[0], self->keepalive_command_[1], 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
+  uint8_t command[8];
+  self->command_frame_(command, self->keepalive_command_[0], self->keepalive_command_[1]);
   static const uint8_t TAIL[8] = {0x00, 0x00, 0xFE, 0xFF, 0xFE, 0xFF, 0x00, 0x00};
   uint8_t setpoint[2][8]{};
   self->setpoint_frames_(setpoint);
@@ -1046,9 +1108,15 @@ void HydronicS3::burst_loop_() {
     this->clock_counter_ = this->clock_counter_ % 3 + 1;
   for (const BurstFrame &f : BURST) {
     uint8_t clock[6];
-    if (f.id == ID_CLOCK && this->clock_frame_(clock))
+    if (f.id == ID_CLOCK && this->clock_frame_(clock)) {
       this->queue_(f.id, clock, sizeof(clock));
-    else
+    } else if (f.id == 0x063) {
+      uint8_t config[8];
+      std::copy(f.data, f.data + 8, config);
+      config[1] = this->room_sensor_ ? 0x01 : 0x00;
+      config[3] = this->config_counter_;
+      this->queue_(f.id, config, 8);
+    } else
       this->queue_(f.id, f.data, f.len);
   }
   if (++this->burst_round_ < BURST_ROUNDS) {
@@ -1647,6 +1715,12 @@ void HydronicS3::decode_did_(uint16_t did, const uint8_t *d, size_t n) {
       for (size_t i = 0; i < 7 && i * 4 + 4 <= n; i++) {
         const uint32_t minutes = static_cast<uint32_t>(u16(i * 4)) << 16 | u16(i * 4 + 2);
         pub(static_cast<DidSensor>(DID_HOURS_TOTAL + i), minutes / 60.0f);
+      }
+      if (n >= 28) {
+        const uint32_t altitude = static_cast<uint32_t>(u16(24)) << 16 | u16(26);
+        if (altitude != this->altitude_min_)
+          ESP_LOGI(TAG, "altitude minutes %" PRIu32 " -> %" PRIu32, this->altitude_min_, altitude);
+        this->altitude_min_ = altitude;
       }
       break;
     default:
