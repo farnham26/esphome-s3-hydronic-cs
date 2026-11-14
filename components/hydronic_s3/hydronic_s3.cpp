@@ -608,7 +608,8 @@ void HydronicS3::decode_(uint32_t can_id, const std::vector<uint8_t> &data) {
 #endif
     }
     this->status_ms_ = millis();
-    if (woke && this->command_on_)  // our run woke the heater; needs connected(), i.e. status_ms_
+    // Our run woke the heater, or send_config() waits for a wake (heater power-up); needs connected().
+    if (woke && (this->command_on_ || this->config_pending_))
       this->schedule_burst_();
     const float temp = decode_temperature(data, 4);
     if (!std::isnan(temp) && temp != this->outlet_temp_c_) {
@@ -930,8 +931,9 @@ void HydronicS3::set_room_sensor(bool control_unit) {
 
 void HydronicS3::send_config() {
   this->burst_sent_ = false;
+  this->config_pending_ = true;
   this->schedule_burst_();
-  ESP_LOGI(TAG, "config burst %s", this->burst_due_ms_ != 0 ? "scheduled" : "not ours to send");
+  ESP_LOGI(TAG, "config burst %s", this->burst_due_ms_ != 0 ? "scheduled" : "pending until the next wake");
 }
 
 void HydronicS3::command_frame_(uint8_t (&frame)[8], uint8_t on, uint8_t mode) const {
@@ -1130,6 +1132,7 @@ void HydronicS3::burst_loop_() {
   }
   this->burst_due_ms_ = 0;
   this->burst_sent_ = true;
+  this->config_pending_ = false;
   ESP_LOGI(TAG, "config burst sent");
 }
 

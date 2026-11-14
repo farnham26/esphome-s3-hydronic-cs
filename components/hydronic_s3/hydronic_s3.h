@@ -462,6 +462,7 @@ class HydronicS3 : public Component
   uint32_t altitude_min_{};  // FD17 altitude minutes, logged on change
   uint32_t controller_next_ms_{0};
   bool burst_sent_{false};      // EasyStart config burst replayed since boot
+  bool config_pending_{false};  // send_config() waits for the next wake
   uint32_t burst_due_ms_{0};    // 0: not scheduled
   uint8_t burst_round_{0};
   void burst_loop_();
